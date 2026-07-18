@@ -1,0 +1,271 @@
+// Shared API contracts and domain types used by Website, AndroidApp and iOSApp.
+// This is the single source of truth — do not redefine these in any app.
+
+export type Role = "ADMIN" | "USER";
+
+export interface User {
+  id: string;
+  googleId: string;
+  email: string;
+  name: string;
+  picture?: string;
+  role: Role;
+  addresses?: SavedAddress[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** A delivery address saved to the user's account (reusable at checkout). */
+export interface SavedAddress {
+  id: string;
+  fullName: string;
+  phone: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+  isDefault?: boolean;
+}
+
+export interface BrandConfig {
+  appName: string;
+  tagline: string;
+  logoUrl: string;
+  supportPhone: string;
+  supportEmail: string;
+  themeColor: string;
+  updatedAt?: string;
+}
+
+/** Standard envelope every API endpoint returns. */
+export interface ApiResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  message?: string;
+}
+
+export interface AuthResponse {
+  user: User;
+  token: string;
+}
+
+// ---------------------------------------------------------------------------
+// Catalog domain (Phase 1)
+// ---------------------------------------------------------------------------
+
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  image?: string;
+  parentCategory?: string | null;
+  order: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BulkPriceTier {
+  minQty: number;
+  pricePerUnit: number;
+}
+
+export interface Product {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  /** Populated Category, or just its id when not populated. */
+  category: Category | string;
+  brand: string;
+  images: string[];
+  price: number;
+  mrp: number;
+  discount: number; // percentage 0-100
+  stock: number;
+  sku: string;
+  rating: number;
+  numReviews: number;
+  specifications: Record<string, string>;
+  tags: string[];
+  isActive: boolean;
+  bulkPricing: BulkPriceTier[];
+  gstRate: number;
+  weight: number; // kg
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CartItem {
+  /** Populated Product, or its id when not populated. */
+  product: Product | string;
+  quantity: number;
+}
+
+export interface Cart {
+  id: string;
+  user: string;
+  items: CartItem[];
+  lastUpdatedAt?: string;
+}
+
+export interface Wishlist {
+  id: string;
+  user: string;
+  items: Array<Product | string>;
+}
+
+// ---------------------------------------------------------------------------
+// Reviews (Phase 4)
+// ---------------------------------------------------------------------------
+
+export interface Review {
+  id: string;
+  product: string; // product id
+  user: string; // author user id
+  userName: string; // snapshot of author name at write time
+  userPicture?: string;
+  rating: number; // 1-5
+  comment: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Coupons (Phase 4)
+// ---------------------------------------------------------------------------
+
+export type CouponType = "PERCENT" | "FLAT";
+
+export interface Coupon {
+  id: string;
+  code: string;
+  type: CouponType;
+  value: number; // percent (0-100) or flat rupees
+  minOrder: number; // minimum items total to qualify
+  maxDiscount: number; // cap for percent coupons; 0 = no cap
+  isActive: boolean;
+  expiresAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Result of validating a coupon against a cart total. */
+export interface CouponValidation {
+  code: string;
+  type: CouponType;
+  value: number;
+  discount: number; // computed discount amount in rupees
+}
+
+// ---------------------------------------------------------------------------
+// Admin analytics (Phase 5)
+// ---------------------------------------------------------------------------
+
+export interface RevenuePoint {
+  date: string; // YYYY-MM-DD
+  revenue: number;
+  orders: number;
+}
+
+export interface TopProduct {
+  title: string;
+  qty: number;
+  revenue: number;
+}
+
+export interface OrderAnalytics {
+  revenueByDay: RevenuePoint[];
+  topProducts: TopProduct[];
+}
+
+/** Paginated list envelope returned by list endpoints. */
+export interface Paginated<T> {
+  items: T[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export type ProductSort =
+  | "newest"
+  | "price_asc"
+  | "price_desc"
+  | "rating"
+  | "discount";
+
+// ---------------------------------------------------------------------------
+// Orders / Checkout (Phase 3)
+// ---------------------------------------------------------------------------
+
+export type PaymentMethod = "COD" | "RAZORPAY";
+export type PaymentStatus = "PENDING" | "PAID" | "FAILED";
+
+/** Order lifecycle. Admin advances the status; users may cancel while PLACED/CONFIRMED. */
+export type OrderStatus =
+  | "PLACED"
+  | "CONFIRMED"
+  | "SHIPPED"
+  | "DELIVERED"
+  | "CANCELLED";
+
+export interface ShippingAddress {
+  fullName: string;
+  phone: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+}
+
+/** A line item snapshot — title/price are frozen at order time for history integrity. */
+export interface OrderItem {
+  product: string; // product id (may be null if later deleted)
+  title: string;
+  image: string;
+  sku: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+}
+
+export interface Order {
+  id: string;
+  user: string | User; // populated for admin views
+  items: OrderItem[];
+  shippingAddress: ShippingAddress;
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  status: OrderStatus;
+  itemsTotal: number;
+  deliveryFee: number;
+  couponCode?: string;
+  discount?: number;
+  total: number;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Payments (Phase 4 — Razorpay)
+// ---------------------------------------------------------------------------
+
+/** Public payment config the storefront reads to decide what to offer. */
+export interface PaymentConfig {
+  razorpayEnabled: boolean;
+  razorpayKeyId: string; // publishable key id (safe to expose); "" when disabled
+}
+
+/** Returned when a Razorpay order is created for one of our orders. */
+export interface RazorpayOrderInfo {
+  keyId: string;
+  razorpayOrderId: string;
+  amount: number; // in paise
+  currency: string;
+  orderId: string; // our order id
+}

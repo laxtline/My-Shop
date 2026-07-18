@@ -1,0 +1,117 @@
+import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
+import type { Cart } from "@shared/types";
+import { apiFetch, ApiError } from "@/lib/api";
+import type { RootState } from "./index";
+
+interface CartState {
+  cart: Cart | null;
+  status: "idle" | "loading" | "ready" | "error";
+  /** productId currently being mutated (for per-item spinners). */
+  mutating: string | null;
+  error: string | null;
+}
+
+const initialState: CartState = {
+  cart: null,
+  status: "idle",
+  mutating: null,
+  error: null,
+};
+
+/** Load the signed-in user's cart. Silently no-ops (empty) when unauthenticated. */
+export const fetchCart = createAsyncThunk("cart/fetch", async (_, { rejectWithValue }) => {
+  try {
+    return await apiFetch<Cart>("/api/cart");
+  } catch (err) {
+    // 401 = not logged in: treat as an empty cart rather than an error.
+    if (err instanceof ApiError && err.status === 401) return null;
+    return rejectWithValue(err instanceof Error ? err.message : "Failed to load cart");
+  }
+});
+
+export const addToCart = createAsyncThunk(
+  "cart/add",
+  async ({ productId, quantity = 1 }: { productId: string; quantity?: number }) => {
+    return apiFetch<Cart>("/api/cart/add", {
+      method: "POST",
+      body: JSON.stringify({ productId, quantity }),
+    });
+  }
+);
+
+export const updateCartItem = createAsyncThunk(
+  "cart/update",
+  async ({ productId, quantity }: { productId: string; quantity: number }) => {
+    return apiFetch<Cart>("/api/cart/update", {
+      method: "PUT",
+      body: JSON.stringify({ productId, quantity }),
+    });
+  }
+);
+
+export const removeFromCart = createAsyncThunk("cart/remove", async (productId: string) => {
+  return apiFetch<Cart>(`/api/cart/remove/${productId}`, { method: "DELETE" });
+});
+
+const cartSlice = createSlice({
+  name: "cart",
+  initialState,
+  reducers: {
+    clearCart(state) {
+      state.cart = null;
+      state.status = "idle";
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      .addCase(fetchCart.pending, (state) => {
+        state.status = "loading";
+      })
+      .addCase(fetchCart.fulfilled, (state, action) => {
+        state.cart = action.payload;
+        state.status = "ready";
+      })
+      .addCase(fetchCart.rejected, (state) => {
+        state.status = "error";
+      });
+
+    // add / update / remove all return the fresh populated cart.
+    for (const thunk of [addToCart, updateCartItem, removeFromCart]) {
+      builder
+        .addCase(thunk.pending, (state, action) => {
+          state.error = null;
+          state.mutating =
+            typeof action.meta.arg === "string"
+              ? action.meta.arg
+              : (action.meta.arg as { productId: string }).productId;
+        })
+        .addCase(thunk.fulfilled, (state, action) => {
+          state.cart = action.payload;
+          state.status = "ready";
+          state.mutating = null;
+        })
+        .addCase(thunk.rejected, (state, action) => {
+          state.error = action.error.message ?? "Cart update failed";
+          state.mutating = null;
+        });
+    }
+  },
+});
+
+export const { clearCart } = cartSlice.actions;
+export default cartSlice.reducer;
+
+// ---- selectors ----
+function items(state: RootState) {
+  return state.cart.cart?.items ?? [];
+}
+
+/** Total number of units across all lines (for the header badge). */
+export const selectCartCount = (state: RootState): number =>
+  items(state).reduce((n, it) => n + it.quantity, 0);
+
+/** True if the given product id is in the cart. */
+export const selectIsInCart = (productId: string) => (state: RootState): boolean =>
+  items(state).some((it) =>
+    typeof it.product === "string" ? it.product === productId : it.product.id === productId
+  );

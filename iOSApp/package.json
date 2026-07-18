@@ -1,0 +1,9 @@
+{
+  "name": "ramachandra-traders-ios",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Placeholder for the iOS (Expo) app — built in Phase 5.",
+  "scripts": {
+    "placeholder": "echo \"iOSApp is scaffolded in Phase 5. See README.md\""
+  }
+}

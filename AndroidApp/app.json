@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Ramachandra Traders",
+    "slug": "ramachandra-traders",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "ramachandra",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#2563eb"
+    },
+    "android": {
+      "package": "com.ramachandratraders.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#2563eb"
+      }
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ramachandratraders.app"
+    },
+    "plugins": ["expo-router"],
+    "extra": {
+      "apiUrl": "http://localhost:5000"
+    }
+  }
+}

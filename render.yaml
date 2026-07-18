@@ -1,0 +1,34 @@
+# Render blueprint for the Ramachandra Traders backend API.
+# In Render: New + -> Blueprint -> pick this repo. It reads this file.
+# Fill the "sync: false" secrets in the Render dashboard after the service is created.
+services:
+  - type: web
+    name: ramachandra-traders-api
+    runtime: node
+    rootDir: Website/backend
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: JWT_SECRET
+        generateValue: true # Render generates a strong secret automatically
+      - key: CLIENT_ORIGIN
+        sync: false # e.g. https://your-site.vercel.app  (no trailing slash)
+      - key: MONGODB_URI
+        sync: false # your MongoDB Atlas connection string
+      - key: GOOGLE_CLIENT_ID
+        sync: false # your Google OAuth client id
+      # Optional integrations — leave blank to disable.
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

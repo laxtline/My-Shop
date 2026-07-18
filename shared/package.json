@@ -1,0 +1,9 @@
+{
+  "name": "@rt/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared types, API contracts and constants for Ramachandra Traders (Website, AndroidApp, iOSApp).",
+  "main": "index.ts",
+  "types": "index.ts",
+  "license": "UNLICENSED"
+}

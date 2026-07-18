@@ -1,0 +1,35 @@
+node_modules/
+.next/
+dist/
+build/
+.env
+.env.local
+*.local
+.DS_Store
+npm-debug.log*
+.expo/
+uploads/
+*.tsbuildinfo
+
+# Editor / AI tool folders
+.qodo/
+.claude/
+
+# Local helper scripts
+push-to-github.ps1
+
+# Private / personal docs — not for GitHub
+docs/prompt.txt
+docs/resume.txt
+docs/TOMORROW_START_HERE.txt
+docs/PROJECT_COMPLETE_CHECKLIST.txt
+docs/README.txt
+docs/run.txt
+docs/HOW_TO_RUN_PROJECT.txt
+docs/WEBSITE_GUIDE.txt
+docs/best free way to live this project for free.txt
+docs/Ramachandra_Traders_Presentation.pptx
+docs/Ramachandra_Traders_Report.docx
+
+# Superseded static preview
+Preview/
