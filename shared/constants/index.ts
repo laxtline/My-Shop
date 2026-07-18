@@ -7,7 +7,7 @@ import type { Role } from "../types";
 export const ADMIN_EMAIL = "ramachandratraders2000@gmail.com";
 
 /** Fixed support phone used for "Call to Order" / "WhatsApp Order" features. */
-export const SUPPORT_PHONE = "6370419708";
+export const SUPPORT_PHONE = "7848003467";
 
 /** Canonical role rule. The ONLY place this decision is made. */
 export function roleForEmail(email: string): Role {
