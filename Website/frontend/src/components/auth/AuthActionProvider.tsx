@@ -7,7 +7,11 @@ import { fetchWishlist, clearWishlist } from "@/store/wishlistSlice";
 import { clearOrders } from "@/store/ordersSlice";
 import { LoginDialog } from "./LoginDialog";
 
-type Action = () => void;
+/**
+ * Callers may return anything — a plain void handler, an async function, or a
+ * dispatched thunk promise. The return value is always ignored.
+ */
+type Action = () => unknown;
 
 interface AuthActionContext {
   /** Run `action` if signed in; otherwise open the login dialog and run it after login. */

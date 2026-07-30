@@ -1,0 +1,451 @@
+===============================================================================
+  console.cloud.google.com — EXACT STEPS TO FIX GOOGLE LOGIN
+  Ramachandra Traders
+===============================================================================
+
+  PURPOSE OF THIS FILE
+  Fix the error you are currently seeing:
+
+      Access blocked: Authorization Error
+      Error 400: origin_mismatch
+
+  Everything in this file happens in your browser at console.cloud.google.com.
+  You do NOT edit any project code. You do NOT need to redeploy anything.
+
+  Time required: about 5 minutes, plus a 2 minute wait.
+
+
+-------------------------------------------------------------------------------
+  YOUR PROJECT DETAILS (keep these handy)
+-------------------------------------------------------------------------------
+
+  +----------------------+--------------------------------------------------+
+  | ITEM                 | VALUE                                            |
+  +----------------------+--------------------------------------------------+
+  | OAuth Client ID      | 639886134229-40k39pn1chk6jskblofjpc3vbo9g3hvm    |
+  |                      |     .apps.googleusercontent.com                  |
+  +----------------------+--------------------------------------------------+
+  | New admin email      | laxtline@gmail.com                               |
+  | Old admin email      | suryakant321pradhan@gmail.com                    |
+  +----------------------+--------------------------------------------------+
+  | Frontend port        | 3000 (or 3001 if 3000 is already in use)         |
+  | Backend port         | 5000                                             |
+  +----------------------+--------------------------------------------------+
+  | Current error        | Error 400: origin_mismatch                       |
+  +----------------------+--------------------------------------------------+
+
+
+-------------------------------------------------------------------------------
+  WHY THIS ERROR IS HAPPENING (30 second explanation)
+-------------------------------------------------------------------------------
+
+  Google only allows sign-in from web addresses you have explicitly registered.
+  It compares the address in your browser's address bar, character by
+  character, against a list you control.
+
+  The address your app was served from is not on that list, so Google refuses
+  and shows "origin_mismatch".
+
+  Most likely cause in your case: port 3000 on your machine was already taken
+  by another project, so this app opened on port 3001 instead. Google has
+  http://localhost:3000 registered (or nothing at all), never 3001.
+
+  STEP 2 below fixes this permanently by registering all the ports you might
+  use.
+
+  Important: changing ADMIN_EMAIL in the project code has nothing to do with
+  this error. This is a Google-side URL registration problem, not a role
+  problem. The admin change is handled separately in STEP 3 and in the notes
+  at the end.
+
+
+===============================================================================
+  STEP 1 — OPEN THE CREDENTIALS PAGE AND SELECT THE RIGHT PROJECT
+===============================================================================
+
+  1. Open this URL in your browser:
+
+         https://console.cloud.google.com/apis/credentials
+
+  2. Look at the TOP-LEFT of the page, just to the right of the "Google Cloud"
+     logo. There is a project dropdown there. Click it.
+
+  3. Select the project that contains this app's OAuth client.
+
+  4. CONFIRM YOU ARE IN THE RIGHT PLACE:
+     Scroll down on the Credentials page. Under the heading
+     "OAuth 2.0 Client IDs" you must see a client whose ID begins with:
+
+         639886134229-...
+
+  WARNING: If you do not see that client ID, you are in the WRONG PROJECT.
+  Go back to the dropdown and try another project. Do not create a new client
+  — you already have one, and creating a second one means updating the ID in
+  two .env files. This wrong-project mistake is the single most common source
+  of confusion in the Google Console.
+
+
+===============================================================================
+  STEP 2 — ADD THE AUTHORIZED JAVASCRIPT ORIGINS
+           (this is the step that fixes origin_mismatch)
+===============================================================================
+
+  1. Click on the NAME of the client whose ID starts with 639886134229-...
+     Click the name text itself, not the checkbox beside it.
+
+  2. Scroll down to the section titled:
+
+         Authorized JavaScript origins
+
+  3. Click "+ ADD URI" and enter these THREE values, one at a time.
+     Click "+ ADD URI" again for each new one:
+
+         http://localhost:3000
+         http://localhost:3001
+         http://localhost:5000
+
+  4. Scroll a little further to the section titled:
+
+         Authorized redirect URIs
+
+     LEAVE THIS COMPLETELY EMPTY. Do not add anything here.
+
+     Reason: this project uses Google Identity Services through the
+     @react-oauth/google library. Google returns the ID token directly to the
+     page in JavaScript. There is no server-side redirect callback, so redirect
+     URIs are not used at all. People often fill this box, leave the JavaScript
+     origins box empty, and then wonder why login never works.
+
+  5. Click the SAVE button at the bottom of the page.
+
+
+  WHY THREE PORTS
+
+  +--------+------------------------------------------------------------------+
+  | PORT   | REASON                                                           |
+  +--------+------------------------------------------------------------------+
+  | 3000   | The frontend's default port                                      |
+  | 3001   | Where the frontend actually ran when 3000 was already occupied    |
+  |        | by another project on your machine                               |
+  | 5000   | The backend port. Added for safety so you never hit this again.   |
+  +--------+------------------------------------------------------------------+
+
+  Adding extra localhost origins costs nothing and creates no security risk.
+  These are development addresses on your own machine only.
+
+
+  EXACT FORMATTING — GOOGLE IS UNFORGIVING HERE
+
+  +---------------------------------+-----------------------------------------+
+  | WRONG                           | CORRECT                                 |
+  +---------------------------------+-----------------------------------------+
+  | http://localhost:3000/          | http://localhost:3000                   |
+  |   (trailing slash)              |                                         |
+  +---------------------------------+-----------------------------------------+
+  | http://127.0.0.1:3000           | http://localhost:3000                   |
+  |   (Google treats 127.0.0.1 and  |                                         |
+  |    localhost as DIFFERENT)      |                                         |
+  +---------------------------------+-----------------------------------------+
+  | https://localhost:3000          | http://localhost:3000                   |
+  |   (https, but local dev is http)|                                         |
+  +---------------------------------+-----------------------------------------+
+  | localhost:3000                  | http://localhost:3000                   |
+  |   (missing protocol)            |                                         |
+  +---------------------------------+-----------------------------------------+
+  | http://localhost:3000/login     | http://localhost:3000                   |
+  |   (no paths allowed)            |                                         |
+  +---------------------------------+-----------------------------------------+
+
+  Copy and paste the values from STEP 2 exactly. Do not type them by hand.
+
+
+===============================================================================
+  STEP 3 — ADD TEST USERS (needed for your new admin email)
+===============================================================================
+
+  1. Open this URL:
+
+         https://console.cloud.google.com/apis/credentials/consent
+
+  2. Look for the field labelled "Publishing status". Read what it says:
+
+     +------------------+---------------------------------------------------+
+     | IF IT SAYS       | WHAT TO DO                                        |
+     +------------------+---------------------------------------------------+
+     | Testing          | Continue with steps 3 to 5 below. Required.       |
+     | In production    | Skip this whole step. Any Google account can      |
+     |                  | sign in already.                                  |
+     +------------------+---------------------------------------------------+
+
+  3. Find the "Test users" section on that page.
+
+  4. Click "+ ADD USERS" and add BOTH of these:
+
+         laxtline@gmail.com
+         suryakant321pradhan@gmail.com
+
+  5. Click SAVE.
+
+
+  WHY BOTH EMAILS
+
+  +--------------------------------+------------------------------------------+
+  | EMAIL                          | ROLE IT WILL GET AFTER YOUR CODE CHANGE  |
+  +--------------------------------+------------------------------------------+
+  | laxtline@gmail.com             | ADMIN (this is the new ADMIN_EMAIL)      |
+  | suryakant321pradhan@gmail.com  | USER (it was admin before, now a normal  |
+  |                                | customer account)                        |
+  +--------------------------------+------------------------------------------+
+
+  Your screenshot showed suryakant321pradhan@gmail.com signed in, so adding it
+  too lets you test the normal-customer experience as well as the admin one.
+
+
+  WHY THIS STEP MATTERS
+
+  A new "External" OAuth app starts in Testing mode. In Testing mode ONLY the
+  emails on the Test users list can sign in. Everyone else is blocked with a
+  message about the app not being verified. If you skip this step, your new
+  admin email may be refused even after STEP 2 is done correctly.
+
+  Limits while in Testing mode:
+    - Maximum 100 test users
+    - Sessions expire after 7 days, so testers re-login weekly
+    - Perfectly fine for development and for demos
+
+
+===============================================================================
+  STEP 4 — WAIT 2 TO 3 MINUTES
+===============================================================================
+
+  Google's documentation says changes can take 5 minutes to a few hours to
+  propagate. In practice localhost origins usually apply within 1 to 2 minutes.
+
+  Do not skip this wait and then conclude the fix failed. Give it a few
+  minutes before testing.
+
+
+===============================================================================
+  STEP 5 — TEST WITH A CLEAN BROWSER STATE
+===============================================================================
+
+  Google caches its previous rejection, so a normal refresh may show you the
+  same error even after the fix has applied.
+
+  Do ONE of these:
+
+      Option A:  Press Ctrl + Shift + R  (hard refresh)
+      Option B:  Open the site in an Incognito / Private window  (better)
+
+  Then click Sign in with Google.
+
+
+  BEFORE YOU CLICK SIGN IN — CHECK YOUR ADDRESS BAR
+
+  +--------------------------+----------------------------------------------+
+  | ADDRESS BAR SHOWS        | RESULT                                       |
+  +--------------------------+----------------------------------------------+
+  | localhost:3000           | Works — registered in STEP 2                 |
+  | localhost:3001           | Works — registered in STEP 2                 |
+  | 127.0.0.1:3000           | FAILS — Google sees this as a different       |
+  |                          | origin. Manually change it to localhost      |
+  +--------------------------+----------------------------------------------+
+
+  If you are on 127.0.0.1, edit the address bar to say localhost instead, press
+  Enter, and then sign in.
+
+
+===============================================================================
+  TROUBLESHOOTING TABLE
+===============================================================================
+
+  +-------------------------------+----------------------+-------------------+
+  | ERROR MESSAGE                 | REAL CAUSE           | FIX               |
+  +-------------------------------+----------------------+-------------------+
+  | Error 400: origin_mismatch    | The exact URL in the | Copy the URL from |
+  | (still, after the fix)        | address bar is not   | the address bar   |
+  |                               | on the list          | and add THAT      |
+  |                               |                      | exact value in    |
+  |                               |                      | STEP 2            |
+  +-------------------------------+----------------------+-------------------+
+  | "App not verified" or         | App is in Testing    | Redo STEP 3. Make |
+  | "Access blocked" naming the   | mode and this email  | sure you clicked  |
+  | app                           | is not a test user   | SAVE              |
+  +-------------------------------+----------------------+-------------------+
+  | "This app is blocked"         | You are using a      | Use a personal    |
+  |                               | Workspace (company / | @gmail.com account|
+  |                               | school) account whose|                   |
+  |                               | admin blocks 3rd     |                   |
+  |                               | party apps           |                   |
+  +-------------------------------+----------------------+-------------------+
+  | The Google button does not    | The Client ID never  | Stop and restart  |
+  | appear at all                 | reached the frontend | the frontend      |
+  |                               | build                | (npm run dev)     |
+  +-------------------------------+----------------------+-------------------+
+  | idpiframe_initialization      | Third-party cookies  | Allow cookies for |
+  | _failed                       | are blocked in the   | accounts.google   |
+  |                               | browser              | .com, or try      |
+  |                               |                      | another browser   |
+  +-------------------------------+----------------------+-------------------+
+  | Login succeeds but the API    | GOOGLE_CLIENT_ID     | Both .env files   |
+  | returns 401                   | differs between      | must hold the     |
+  |                               | frontend and backend | identical value   |
+  +-------------------------------+----------------------+-------------------+
+  | Login works but the admin     | Backend still has    | Restart the       |
+  | panel does not appear         | the old ADMIN_EMAIL  | backend — see the |
+  |                               | loaded in memory     | note below        |
+  +-------------------------------+----------------------+-------------------+
+
+
+===============================================================================
+  IMPORTANT NOTE — ABOUT YOUR ADMIN EMAIL CHANGE
+===============================================================================
+
+  The admin email was changed in the project code from
+  suryakant321pradhan@gmail.com to laxtline@gmail.com, in this file:
+
+      shared/constants/index.ts       ->  export const ADMIN_EMAIL
+
+  HOW THE ROLE RULE WORKS IN THIS PROJECT
+
+  The role is not stored once and forgotten. It is re-derived from the email on
+  every single login, by a pre-save hook in
+  Website/backend/src/models/User.ts:
+
+      userSchema.pre("save", function (next) {
+        this.role = roleForEmail(this.email);
+        next();
+      });
+
+  Consequences, all of them good:
+
+  +--------------------------------+------------------------------------------+
+  | ACCOUNT                        | WHAT HAPPENS ON NEXT LOGIN               |
+  +--------------------------------+------------------------------------------+
+  | laxtline@gmail.com             | Automatically becomes ADMIN. No database |
+  |                                | edit needed.                             |
+  | suryakant321pradhan@gmail.com  | Automatically downgraded to USER. The    |
+  |                                | admin panel disappears for it.           |
+  +--------------------------------+------------------------------------------+
+
+  YOU MUST RESTART THE BACKEND
+
+  ADMIN_EMAIL is read into memory when the backend process starts. If the
+  backend was already running when the code was edited, it is still using the
+  OLD admin email. Stop it (Ctrl + C in its terminal) and start it again:
+
+      cd "Website/backend"
+      npm run dev
+
+  Without this restart, laxtline@gmail.com will log in as a normal USER and you
+  will think the change did not work.
+
+  ONE THING NOT YET VERIFIED
+
+  The backend smoke test has not been run since the admin email was changed,
+  because the tooling was unavailable at the time. It is worth running to
+  confirm nothing else referenced the old address:
+
+      cd "Website/backend"
+      npm run test:smoke
+
+  The last line should read: ALL PASSED
+
+
+===============================================================================
+  LATER — WHEN YOU DEPLOY TO A LIVE URL
+===============================================================================
+
+  Everything above covers localhost only. After deploying, come back to the
+  same two Google Console pages and add your live addresses.
+
+  ON THE CREDENTIALS PAGE (your OAuth client)
+  Authorized JavaScript origins — ADD, do not replace:
+
+      https://your-app.vercel.app
+      https://ramachandratraders.com          (if you buy a custom domain)
+      https://www.ramachandratraders.com      (the www version counts as
+                                               a separate origin)
+
+  Keep the localhost entries. They do no harm and you will want them for
+  future local development.
+
+  ON THE OAUTH CONSENT SCREEN PAGE
+  Authorized domains — add the BARE domain only, no https://, no path,
+  no www prefix:
+
+      vercel.app
+      ramachandratraders.com
+
+  Note that http:// is permitted ONLY for localhost. Every other origin must
+  be https://.
+
+  PUBLISHING THE APP (only when real customers need to sign in)
+
+  On the consent screen page, click "Publish App".
+
+  This project requests only three basic scopes — email, profile, and openid.
+  These are non-sensitive, so publishing is INSTANT and requires no Google
+  review. You will see a warning about verification; it applies to sensitive
+  scopes, which this app does not use.
+
+  After publishing:
+    - Any Google account can sign in
+    - The 100 test user limit is gone
+    - The 7 day session expiry is gone
+    - Users may still see an "unverified app" screen they can click past.
+      Removing that screen entirely requires full brand verification: a
+      privacy policy page, a terms page, a verified domain you own, and a
+      demo video. That is optional and usually not worth it for a portfolio
+      or small business site.
+
+  Do NOT upload an app logo before you are ready. Uploading a logo triggers
+  Google's brand verification review, which can take days or weeks.
+
+
+===============================================================================
+  QUICK CHECKLIST — TICK THESE OFF
+===============================================================================
+
+  [ ] Opened console.cloud.google.com/apis/credentials
+  [ ] Confirmed the correct project is selected (client 639886134229- visible)
+  [ ] Opened the OAuth client by clicking its name
+  [ ] Added http://localhost:3000 to Authorized JavaScript origins
+  [ ] Added http://localhost:3001 to Authorized JavaScript origins
+  [ ] Added http://localhost:5000 to Authorized JavaScript origins
+  [ ] Left Authorized redirect URIs EMPTY
+  [ ] Clicked SAVE
+  [ ] Opened the OAuth consent screen page
+  [ ] Checked Publishing status (Testing or In production)
+  [ ] If Testing: added laxtline@gmail.com as a test user
+  [ ] If Testing: added suryakant321pradhan@gmail.com as a test user
+  [ ] Clicked SAVE
+  [ ] Waited 2 to 3 minutes
+  [ ] Restarted the backend so the new ADMIN_EMAIL is loaded
+  [ ] Tested login in an Incognito window
+  [ ] Confirmed the address bar says localhost, not 127.0.0.1
+  [ ] laxtline@gmail.com signs in and the /admin panel is visible
+
+
+===============================================================================
+  THE ONE RULE TO REMEMBER
+===============================================================================
+
+  Whatever URL is in your browser's address bar must appear, EXACTLY, in
+  Authorized JavaScript origins.
+
+  Same protocol. Same hostname. Same port. No trailing slash. No path.
+
+  Get that right and origin_mismatch cannot happen.
+
+===============================================================================
+  RELATED FILES IN THIS PROJECT
+===============================================================================
+
+  docs/GOOGLE_SIGNIN_SETUP.txt      Full Google OAuth setup from scratch,
+                                    including creating a brand new client
+  docs/DEPLOY_STEP_BY_STEP.txt      Deploying with GitHub + Render + Vercel
+  docs/DEPLOY_VERCEL_ONLY.txt       Deploying without Render
+  shared/constants/index.ts         Where ADMIN_EMAIL is defined
+
+===============================================================================

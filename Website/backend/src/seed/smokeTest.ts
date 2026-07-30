@@ -36,7 +36,7 @@ async function main() {
   // --- seed a user (ADMIN via canonical email rule), a category and a product ---
   const admin = await UserModel.create({
     googleId: "g1",
-    email: "ramachandratraders2000@gmail.com",
+    email: "suryakant321pradhan@gmail.com",
     name: "Owner",
   });
   const cat = await CategoryModel.create({ name: "Tiles", order: 1 });

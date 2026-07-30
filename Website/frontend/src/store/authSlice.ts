@@ -53,6 +53,20 @@ const authSlice = createSlice({
     setUser(state, action: PayloadAction<User>) {
       state.user = action.payload;
     },
+    /**
+     * Record a sign-in failure that happened *before* our thunk ran — i.e. inside
+     * Google's own widget (popup blocked, origin not authorised, bad client ID).
+     * Without this the button just silently does nothing, because
+     * `loginWithGoogle` is never dispatched and no error is ever set.
+     */
+    setAuthError(state, action: PayloadAction<string>) {
+      state.error = action.payload;
+      state.status = "anonymous";
+    },
+    /** Clear a stale error, e.g. when the login dialog is reopened. */
+    clearAuthError(state) {
+      state.error = null;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -83,5 +97,5 @@ const authSlice = createSlice({
   },
 });
 
-export const { setUser } = authSlice.actions;
+export const { setUser, setAuthError, clearAuthError } = authSlice.actions;
 export default authSlice.reducer;

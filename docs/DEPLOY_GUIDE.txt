@@ -132,7 +132,7 @@
   [ ] Open your Vercel site — home page loads with products.
   [ ] Google Sign-In works (must have added the Vercel URL in Google console).
   [ ] Add to cart -> checkout -> place a COD order -> see it in "My orders".
-  [ ] Admin login (ramachandratraders2000@gmail.com) -> /admin shows tabs.
+  [ ] Admin login (suryakant321pradhan@gmail.com) -> /admin shows tabs.
   [ ] Admin -> Products: add a product (upload works while the dyno is warm).
   [ ] Write a product review; it appears and updates the star rating.
   [ ] (If Razorpay keys set) "Pay Online" appears at checkout.
@@ -143,9 +143,14 @@
 --------------------------------------------------------------------------------
   ADMIN ACCOUNT
 --------------------------------------------------------------------------------
-  ramachandratraders2000@gmail.com is auto-assigned ADMIN on login.
+  suryakant321pradhan@gmail.com is auto-assigned ADMIN on login.
   Every other Google account is a normal USER. (Change this in
   shared/constants/index.ts -> ADMIN_EMAIL if needed, then redeploy both.)
+
+  Note: ADMIN_EMAIL (who can administer the shop) is deliberately separate from
+  SUPPORT_EMAIL (ramachandratraders2000@gmail.com), which is the public inbox
+  shown in the footer, on invoices, and in order emails. Changing the admin
+  account does not put a personal address on customer-facing pages.
 
 
 --------------------------------------------------------------------------------

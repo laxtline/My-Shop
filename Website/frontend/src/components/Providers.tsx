@@ -8,6 +8,7 @@ import { fetchMe } from "@/store/authSlice";
 import { fetchBrand } from "@/store/brandSlice";
 import { fetchCategories } from "@/store/categoriesSlice";
 import { AuthActionProvider } from "@/components/auth/AuthActionProvider";
+import { ToastProvider } from "@/components/ui/Toast";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
@@ -31,7 +32,9 @@ export function Providers({ children }: { children: ReactNode }) {
     <Provider store={storeRef.current}>
       <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
         <Bootstrap store={storeRef.current} />
-        <AuthActionProvider>{children}</AuthActionProvider>
+        <ToastProvider>
+          <AuthActionProvider>{children}</AuthActionProvider>
+        </ToastProvider>
       </GoogleOAuthProvider>
     </Provider>
   );

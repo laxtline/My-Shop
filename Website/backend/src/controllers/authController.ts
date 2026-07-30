@@ -76,20 +76,33 @@ export async function googleLogin(req: Request, res: Response) {
     user = await UserModel.findOne({ email });
   }
 
-  if (user) {
-    user.googleId = payload.sub;
-    user.email = email;
-    user.name = payload.name ?? user.name;
-    user.picture = payload.picture ?? user.picture;
-    // role is re-derived in the pre-save hook
-    await user.save();
-  } else {
-    user = await UserModel.create({
-      googleId: payload.sub,
-      email,
-      name: payload.name ?? email,
-      picture: payload.picture,
-    });
+  try {
+    if (user) {
+      user.googleId = payload.sub;
+      user.email = email;
+      user.name = payload.name ?? user.name;
+      user.picture = payload.picture ?? user.picture;
+      // role is re-derived in the pre-save hook
+      await user.save();
+    } else {
+      user = await UserModel.create({
+        googleId: payload.sub,
+        email,
+        name: payload.name ?? email,
+        picture: payload.picture,
+      });
+    }
+  } catch (err) {
+    // Two logins racing for the same brand-new account both miss the lookups
+    // above and both try to insert — the loser hits the unique index on
+    // googleId/email. That is not a failure: the account now exists, so re-read
+    // it and continue instead of showing the user a login error.
+    if ((err as { code?: number }).code === 11000) {
+      user = await UserModel.findOne({ $or: [{ googleId: payload.sub }, { email }] });
+      if (!user) throw new ApiError(409, "This account conflicts with an existing user.");
+    } else {
+      throw err;
+    }
   }
 
   const token = signToken({ userId: user._id.toString() });

@@ -15,13 +15,17 @@ export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  // Spread `options` FIRST so the defaults below always win: a caller passing its
+  // own `headers` must not silently drop Content-Type, and nothing may drop
+  // `credentials: "include"` (which would send the request without the auth
+  // cookie and fail every logged-in call with a 401).
   const res = await fetch(`${API_URL}${path}`, {
+    ...options,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(options.headers ?? {}),
     },
-    ...options,
   });
 
   let body: ApiResponse<T> | null = null;

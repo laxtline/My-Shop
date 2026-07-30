@@ -17,6 +17,8 @@ uploads/
 
 # Local helper scripts
 push-to-github.ps1
+vercel-env.ps1
+.vercel/
 
 # Private / personal docs — not for GitHub
 docs/prompt.txt
@@ -30,6 +32,28 @@ docs/WEBSITE_GUIDE.txt
 docs/best free way to live this project for free.txt
 docs/Ramachandra_Traders_Presentation.pptx
 docs/Ramachandra_Traders_Report.docx
+docs/github.txt
+docs/interview.txt
+docs/imp-file.txt
+docs/_build_report_docx.py
+docs/_build_presentation_pptx.py
+docs/_update_api_slide.py
+docs/*.backup
+
+# NOT ignored, and intentionally so — these two help anyone who clones the repo
+# actually run it, which is the point of publishing it:
+#   docs/DEPLOY_GUIDE.txt
+#   docs/Ramachandra_Traders_API.postman_collection.json
 
 # Superseded static preview
 Preview/
+
+.vercel
+.env*
+
+# ...but the templates MUST be committed — they are how anyone cloning the repo
+# knows which variables to set. They hold placeholders only, never real secrets.
+!.env.example
+!.env.local.example
+!**/.env.example
+!**/.env.local.example

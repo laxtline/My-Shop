@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Price } from "@/components/ui/Price";
 import { Rating } from "@/components/ui/Rating";
 import { Badge } from "@/components/ui/Badge";
+import { useToast } from "@/components/ui/Toast";
 import { primaryImage } from "@/lib/format";
 import { WishlistButton } from "./WishlistButton";
 
@@ -16,16 +17,21 @@ import { WishlistButton } from "./WishlistButton";
 export function ProductCard({ product }: { product: Product }) {
   const dispatch = useAppDispatch();
   const { requireAuth } = useAuthAction();
+  const { toast } = useToast();
   const inCart = useAppSelector(selectIsInCart(product.id));
   const mutating = useAppSelector((s) => s.cart.mutating === product.id);
   const outOfStock = product.stock <= 0;
   const lowStock = !outOfStock && product.stock <= 10;
 
   const add = () =>
-    requireAuth(
-      () => dispatch(addToCart({ productId: product.id, quantity: 1 })),
-      "Sign in to add items to your cart"
-    );
+    requireAuth(async () => {
+      const result = await dispatch(addToCart({ productId: product.id, quantity: 1 }));
+      if (addToCart.fulfilled.match(result)) {
+        toast(`${product.title} added to cart`);
+      } else {
+        toast("Could not add to cart. Please try again.", "error");
+      }
+    }, "Sign in to add items to your cart");
 
   return (
     <div className="group relative flex flex-col rounded-2xl border border-slate-100 bg-white p-3 shadow-card transition-shadow hover:shadow-card-hover">

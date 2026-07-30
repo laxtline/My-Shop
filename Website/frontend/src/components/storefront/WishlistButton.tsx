@@ -3,6 +3,7 @@
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { addToWishlist, removeFromWishlist, selectIsWishlisted } from "@/store/wishlistSlice";
 import { useAuthAction } from "@/components/auth/AuthActionProvider";
+import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
 
 /** Heart toggle that saves/removes a product from the wishlist (auth-gated). */
@@ -17,12 +18,17 @@ export function WishlistButton({
 }) {
   const dispatch = useAppDispatch();
   const { requireAuth } = useAuthAction();
+  const { toast } = useToast();
   const wishlisted = useAppSelector(selectIsWishlisted(productId));
   const busy = useAppSelector((s) => s.wishlist.mutating === productId);
 
   const toggle = () =>
-    requireAuth(() => {
-      dispatch(wishlisted ? removeFromWishlist(productId) : addToWishlist(productId));
+    requireAuth(async () => {
+      // Read the flag before dispatching — the store flips it once the thunk
+      // settles, so checking afterwards would report the wrong message.
+      const wasWishlisted = wishlisted;
+      await dispatch(wasWishlisted ? removeFromWishlist(productId) : addToWishlist(productId));
+      toast(wasWishlisted ? "Removed from wishlist" : "Saved to wishlist");
     }, "Sign in to save items to your wishlist");
 
   return (

@@ -179,6 +179,14 @@ export interface OrderAnalytics {
   topProducts: TopProduct[];
 }
 
+/** Headline totals from GET /api/orders/admin/stats. */
+export interface OrderStats {
+  totalOrders: number;
+  revenue: number;
+  /** Order count keyed by OrderStatus; a status with no orders may be absent. */
+  statusCounts: Partial<Record<OrderStatus, number>>;
+}
+
 /** Paginated list envelope returned by list endpoints. */
 export interface Paginated<T> {
   items: T[];

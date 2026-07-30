@@ -21,6 +21,7 @@ import { payForOrder } from "@/lib/razorpay";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
+import { useToast } from "@/components/ui/Toast";
 import { formatINR, unitPriceForQty } from "@/lib/format";
 
 const DELIVERY_FEE = 49;
@@ -39,6 +40,7 @@ const EMPTY_ADDRESS: ShippingAddress = {
 export function CheckoutView() {
   const dispatch = useAppDispatch();
   const router = useRouter();
+  const { toast } = useToast();
   const { cart, status } = useAppSelector((s) => s.cart);
   const { placing, error } = useAppSelector((s) => s.orders);
   const user = useAppSelector((s) => s.auth.user);
@@ -55,6 +57,8 @@ export function CheckoutView() {
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<CouponValidation | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
+  // Shown when the (currently inactive) online-payment option is clicked.
+  const [onlineNotice, setOnlineNotice] = useState(false);
   const [applyingCoupon, setApplyingCoupon] = useState(false);
 
   const addresses = user?.addresses ?? [];
@@ -153,6 +157,7 @@ export function CheckoutView() {
         body: JSON.stringify({ code, itemsTotal }),
       });
       setCoupon(result);
+      toast(`Coupon ${result.code} applied`);
     } catch (err) {
       setCoupon(null);
       setCouponError(err instanceof Error ? err.message : "Invalid coupon");
@@ -194,6 +199,7 @@ export function CheckoutView() {
 
     // 2) COD is done. For online payment, launch Razorpay for this order.
     if (method === "COD") {
+      toast("Order placed successfully");
       router.push(`/orders/${order.id}`);
       return;
     }
@@ -206,11 +212,13 @@ export function CheckoutView() {
         themeColor: brand.themeColor,
         prefill: { name: address.fullName, email: user?.email, contact: address.phone },
       });
+      toast("Payment successful — order confirmed");
       router.push(`/orders/${order.id}`);
     } catch (err) {
       // Payment cancelled or failed. The order exists as unpaid — the user can
       // retry from the order page.
       setPayError(err instanceof Error ? err.message : "Payment could not be completed.");
+      toast("Payment not completed. You can retry from the order page.", "error");
       router.push(`/orders/${order.id}`);
     } finally {
       setPaying(false);
@@ -253,13 +261,33 @@ export function CheckoutView() {
           )}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Field label="Full name" value={address.fullName} onChange={set("fullName")} required />
-            <Field label="Phone (10-digit)" value={address.phone} onChange={set("phone")} required inputMode="numeric" />
-            <Field label="Address line 1" value={address.line1} onChange={set("line1")} required className="sm:col-span-2" />
-            <Field label="Address line 2 (optional)" value={address.line2 ?? ""} onChange={set("line2")} className="sm:col-span-2" />
-            <Field label="City" value={address.city} onChange={set("city")} required />
-            <Field label="State" value={address.state} onChange={set("state")} required />
-            <Field label="Pincode (6-digit)" value={address.pincode} onChange={set("pincode")} required inputMode="numeric" />
+            <Field label="Full name" value={address.fullName} onChange={set("fullName")} required autoComplete="name" />
+            <Field
+              label="Phone (10-digit)"
+              value={address.phone}
+              onChange={set("phone")}
+              required
+              inputMode="numeric"
+              pattern="[6-9][0-9]{9}"
+              maxLength={10}
+              autoComplete="tel-national"
+              title="Enter a 10-digit Indian mobile number starting with 6-9."
+            />
+            <Field label="Address line 1" value={address.line1} onChange={set("line1")} required className="sm:col-span-2" autoComplete="address-line1" />
+            <Field label="Address line 2 (optional)" value={address.line2 ?? ""} onChange={set("line2")} className="sm:col-span-2" autoComplete="address-line2" />
+            <Field label="City" value={address.city} onChange={set("city")} required autoComplete="address-level2" />
+            <Field label="State" value={address.state} onChange={set("state")} required autoComplete="address-level1" />
+            <Field
+              label="Pincode (6-digit)"
+              value={address.pincode}
+              onChange={set("pincode")}
+              required
+              inputMode="numeric"
+              pattern="[1-9][0-9]{5}"
+              maxLength={6}
+              autoComplete="postal-code"
+              title="Enter a 6-digit Indian PIN code."
+            />
           </div>
 
           <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
@@ -294,15 +322,34 @@ export function CheckoutView() {
               selected={method === "COD"}
               onSelect={() => setMethod("COD")}
             />
-            {config?.razorpayEnabled && (
+            {config?.razorpayEnabled ? (
               <PaymentOption
                 label="Pay Online (UPI / Card / Netbanking)"
                 description="Secure payment via Razorpay."
                 selected={method === "RAZORPAY"}
                 onSelect={() => setMethod("RAZORPAY")}
               />
+            ) : (
+              // Online payment is built end-to-end (see paymentController), but the
+              // gateway keys are intentionally not configured, so it stays switched
+              // off. Showing it as "coming soon" is honest: the option is visible
+              // without ever letting an order be placed through an inactive gateway.
+              <PaymentOption
+                label="Pay Online (UPI / Card / Netbanking)"
+                description="Secure payment via UPI, card or netbanking."
+                selected={false}
+                disabled
+                onSelect={() => setOnlineNotice(true)}
+              />
             )}
           </div>
+          {onlineNotice && (
+            // aria-live so the message is announced when it appears, not silently
+            // rendered for sighted users only.
+            <p aria-live="polite" className="mt-2 text-xs font-medium text-brand">
+              Coming soon — for now, please continue with Cash on Delivery.
+            </p>
+          )}
           {!config && <p className="mt-2 text-xs text-slate-400">Loading payment options…</p>}
         </section>
       </div>
@@ -387,16 +434,26 @@ function PaymentOption({
   description,
   selected,
   onSelect,
+  disabled = false,
 }: {
   label: string;
   description: string;
   selected: boolean;
   onSelect: () => void;
+  /** Renders the option as unavailable: it can be clicked to explain why, but never selected. */
+  disabled?: boolean;
 }) {
   return (
     <label
-      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${
-        selected ? "border-brand bg-brand-50" : "border-slate-200 hover:bg-slate-50"
+      // The radio is disabled, and a disabled input does not fire click events
+      // through its label — so the handler lives here, on the label itself.
+      onClick={disabled ? onSelect : undefined}
+      className={`flex items-start gap-3 rounded-xl border p-3 ${
+        disabled
+          ? "cursor-pointer border-slate-200 bg-slate-50/60"
+          : selected
+            ? "cursor-pointer border-brand bg-brand-50"
+            : "cursor-pointer border-slate-200 hover:bg-slate-50"
       }`}
     >
       <input
@@ -404,10 +461,20 @@ function PaymentOption({
         name="payment-method"
         checked={selected}
         onChange={onSelect}
+        disabled={disabled}
         className="mt-0.5 h-4 w-4 text-brand"
       />
       <span>
-        <span className="block text-sm font-medium text-slate-800">{label}</span>
+        <span
+          className={`block text-sm font-medium ${disabled ? "text-slate-500" : "text-slate-800"}`}
+        >
+          {label}
+          {disabled && (
+            <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+              Coming soon
+            </span>
+          )}
+        </span>
         <span className="block text-xs text-slate-400">{description}</span>
       </span>
     </label>

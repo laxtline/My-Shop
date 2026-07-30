@@ -35,6 +35,16 @@ export const env = {
 
 export const isProd = env.nodeEnv === "production";
 
+/**
+ * Allowed browser origins, parsed from CLIENT_ORIGIN as a comma-separated list.
+ * A single value keeps working unchanged; multiple values matter on deploy,
+ * where the production domain and Vercel preview domains differ.
+ */
+export const allowedOrigins = env.clientOrigin
+  .split(",")
+  .map((o) => o.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
 /** Razorpay is active only when both credentials are configured. */
 export const razorpayEnabled = Boolean(env.razorpayKeyId && env.razorpayKeySecret);
 

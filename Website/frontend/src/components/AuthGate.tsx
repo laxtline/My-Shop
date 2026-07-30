@@ -3,7 +3,7 @@
 import { type ReactNode } from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { loginWithGoogle } from "@/store/authSlice";
+import { loginWithGoogle, setAuthError } from "@/store/authSlice";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
@@ -70,7 +70,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
                     if (cred.credential) dispatch(loginWithGoogle(cred.credential));
                   }}
                   onError={() => {
-                    /* surfaced via slice error on failed exchange */
+                    // Google's widget failed before our thunk could run (popup
+                    // blocked, origin not authorised, bad client ID). Nothing
+                    // dispatches on this path, so set the error ourselves —
+                    // otherwise the button appears to do nothing at all.
+                    dispatch(
+                      setAuthError(
+                        "Google sign-in could not start. Allow pop-ups for this site and try again."
+                      )
+                    );
                   }}
                   theme="filled_blue"
                   size="large"

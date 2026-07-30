@@ -19,13 +19,14 @@ mobile app — all sharing one type-safe API contract.
 - Product catalog with filters (category / brand / price / rating / discount), 5 sort modes, pagination
 - Product detail: image gallery, bulk-pricing tiers, GST, stock badges, reviews & ratings
 - Cart, wishlist, and search — per-user, server-persisted, optimistic UI updates
-- Checkout: **Cash on Delivery + Razorpay online payment** (server-verified signature)
+- Checkout: **Cash on Delivery + Razorpay online payment** (server-verified signature), autocomplete hints on address fields, phone/pincode pattern validation
 - Coupons (percent/flat, min-order, expiry) — discount always recomputed server-side
 - Saved delivery addresses with default auto-fill
 - Order history with status-tracking timeline, cancellation with restock, printable **tax invoice**
 - Email notifications on order placed / status change (Resend API)
+- Toast notifications for cart actions, wishlist, checkout feedback
 - "You may also like" + "Recently viewed" recommendation rails
-- Dark mode 🌙, mobile-first responsive layout, skeleton loaders, error boundaries
+- Dark mode 🌙, mobile-first responsive layout, skeleton loaders, error boundaries, ARIA labels on interactive elements
 - SEO: dynamic sitemap.xml, robots.txt, Open Graph, per-product JSON-LD structured data
 
 ### Admin dashboard
@@ -39,8 +40,9 @@ mobile app — all sharing one type-safe API contract.
 
 - Server-authoritative pricing & stock (clients can never set prices), atomic stock decrement, immutable order line-item snapshots
 - Role-based access control (ADMIN vs USER) enforced in middleware
-- Security: Helmet, credentialed CORS allow-list, two-tier rate limiting, request-size limits, input validation on every write endpoint, fail-fast env validation
+- Security: Helmet, credentialed CORS allow-list (comma-separated for multiple domains; blocked origins get a 403, not a misleading 500), two-tier rate limiting (auth endpoints separated from session checks), request-size limits, input validation on every write endpoint, MongoDB duplicate-key error handling, fail-fast env validation
 - Dynamic branding (store name, logo, theme color) loaded from the database — re-skin with zero code changes
+- Complete REST API documentation: Postman collection with 41 endpoints (`docs/Ramachandra_Traders_API.postman_collection.json`)
 - End-to-end smoke test: boots the real server against in-memory MongoDB and asserts the full catalog → cart → checkout → admin flow (`npm run test:smoke`)
 
 ## Tech stack

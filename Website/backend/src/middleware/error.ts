@@ -20,8 +20,15 @@ export function errorHandler(
   if (err instanceof ApiError) {
     statusCode = err.statusCode;
   } else if (err && typeof err === "object") {
-    const e = err as { name?: string; type?: string; status?: number };
-    if (e.name === "CastError") {
+    const e = err as { name?: string; type?: string; status?: number; code?: number };
+    if (e.code === 11000) {
+      // MongoDB unique-index violation. Without this branch it surfaced as an
+      // opaque 500 ("E11000 duplicate key error collection: ...") — most visibly
+      // during Google login, where a googleId/email collision looked like a
+      // server crash instead of a conflict the user can act on.
+      statusCode = 409;
+      message = "That record already exists.";
+    } else if (e.name === "CastError") {
       // Invalid MongoDB ObjectId in a param/body — client error, not a crash.
       statusCode = 400;
       message = "Invalid id format.";

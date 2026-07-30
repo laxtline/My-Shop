@@ -1,0 +1,658 @@
+===============================================================================
+  RAMACHANDRA TRADERS — GITHUB + VERCEL ONLY (NO RENDER)
+  Running the backend as Vercel Serverless Functions
+===============================================================================
+
+  This document explains how to drop Render entirely and host BOTH the frontend
+  and the backend on Vercel, deployed from the same GitHub repository.
+
+  Read the honesty section below before you start. This route is real and it
+  works, but it is not the tested path for this project, and it needs two new
+  files plus one Vercel setting that is easy to miss.
+
+
+-------------------------------------------------------------------------------
+  HONESTY SECTION — READ THIS BEFORE YOU COMMIT TO THIS ROUTE
+-------------------------------------------------------------------------------
+
+  1. "GITHUB + VERCEL ONLY" IS NOT FULLY POSSIBLE.
+
+     You still need MongoDB Atlas. Vercel does not host MongoDB. There is no
+     configuration, plan, or trick that removes this. Any guide that claims
+     otherwise is either wrong or is silently switching you to a different
+     database (Postgres / KV), which would mean rewriting every Mongoose model
+     in this project.
+
+     So the honest name for this route is:
+
+         GitHub + Vercel + MongoDB Atlas       (Render eliminated)
+
+     You go from three dashboards to two. That is the real win.
+
+
+  2. THIS PATH IS NOT TESTED FOR THIS PROJECT.
+
+     The Render path is tested and pre-configured — render.yaml already exists
+     in the repo root, and docs/DEPLOY_GUIDE.txt was written against a working
+     deploy. This Vercel-only path has NOT been run end to end for this
+     codebase. The steps below are correct in principle, and the code is
+     structured well for it, but expect to debug one or two things.
+
+     If your goal is "get it live today with minimum risk", use Render.
+     If your goal is "one platform, fewer dashboards", use this.
+
+
+  3. THREE THINGS IN THIS CODEBASE NEED ATTENTION.
+
+     They are all covered in detail below, but know them upfront:
+
+       a) The backend imports from @shared/*, which lives OUTSIDE the backend
+          folder. Vercel ignores files outside the Root Directory unless you
+          turn on one specific setting.
+
+       b) Mongoose opens a new connection per function invocation unless you
+          cache it. Without caching you will exhaust your Atlas connection
+          limit under even light traffic.
+
+       c) Image uploads write to local disk. Serverless has no persistent
+          disk, so uploaded images vanish. (Note: this is ALREADY broken on
+          Render's free tier for the same reason, so you lose nothing.)
+
+
+-------------------------------------------------------------------------------
+  WHY THIS IS EVEN POSSIBLE — THE CODE IS ALREADY SHAPED FOR IT
+-------------------------------------------------------------------------------
+
+  Look at Website/backend/src/index.ts:
+
+      import { createApp } from "./app.js";
+      import { connectDB } from "./config/db.js";
+
+      async function start() {
+        await connectDB();
+        const app = createApp();
+        app.listen(env.port, ...);
+      }
+
+  The important detail: createApp() is a separate exported function. Building
+  the Express app and STARTING the server are two different things.
+
+  A serverless function cannot call app.listen() — there is no long-running
+  process to listen. But it can call createApp() and hand each incoming request
+  to the returned Express app.
+
+  Because this project already separates those two concerns, no existing file
+  needs to be modified. You only ADD an entry point beside them.
+
+
+===============================================================================
+  METHOD A — TWO VERCEL PROJECTS FROM ONE REPO   (RECOMMENDED)
+===============================================================================
+
+  The idea: import the same GitHub repo into Vercel twice, with a different
+  Root Directory each time.
+
+  +-------------------+------------------------+---------------------------+
+  | VERCEL PROJECT    | ROOT DIRECTORY         | BECOMES                   |
+  +-------------------+------------------------+---------------------------+
+  | ramachandra-web   | Website/frontend       | The storefront (Next.js)  |
+  | ramachandra-api   | Website/backend        | The API (serverless)      |
+  +-------------------+------------------------+---------------------------+
+
+  Both watch the same branch. One git push redeploys both.
+
+
+-------------------------------------------------------------------------------
+  STEP 1 — CREATE THE SERVERLESS ENTRY POINT
+-------------------------------------------------------------------------------
+
+  Create a NEW file:
+
+      Website/backend/api/index.ts
+
+  Paste exactly this:
+
+  -----------------------------------------------------------------------------
+  import type { VercelRequest, VercelResponse } from "@vercel/node";
+  import { createApp } from "../src/app.js";
+  import { connectDB } from "../src/config/db.js";
+
+  // Built once per warm instance, then reused across invocations.
+  const app = createApp();
+
+  // Mongoose must NOT reconnect on every request. A warm serverless instance
+  // reuses this module, so we cache the connect promise here. On failure we
+  // reset it to null so the next invocation retries instead of being stuck
+  // with a permanently rejected promise.
+  let ready: Promise<void> | null = null;
+
+  function ensureDB(): Promise<void> {
+    if (!ready) {
+      ready = connectDB().catch((err) => {
+        ready = null;
+        throw err;
+      });
+    }
+    return ready;
+  }
+
+  export default async function handler(req: VercelRequest, res: VercelResponse) {
+    await ensureDB();
+    return (app as unknown as (rq: unknown, rs: unknown) => void)(req, res);
+  }
+  -----------------------------------------------------------------------------
+
+  WHY THE ensureDB() GUARD MATTERS
+
+  Without it, every single API request opens a fresh MongoDB connection.
+  Atlas free tier (M0) allows 500 concurrent connections. A handful of users
+  browsing the catalog would blow through that in seconds and the database
+  starts refusing connections. This guard is not optional.
+
+
+-------------------------------------------------------------------------------
+  STEP 2 — TELL VERCEL TO ROUTE EVERYTHING TO THAT FUNCTION
+-------------------------------------------------------------------------------
+
+  Create a NEW file:
+
+      Website/backend/vercel.json
+
+  Paste exactly this:
+
+  -----------------------------------------------------------------------------
+  {
+    "rewrites": [
+      { "source": "/(.*)", "destination": "/api/index" }
+    ]
+  }
+  -----------------------------------------------------------------------------
+
+  What this does: every incoming path — /api/products, /api/health, /api/cart,
+  everything — is handed to your single Express app, which then does its own
+  internal routing exactly as it does locally. You are running one function
+  that contains the whole API, not one function per endpoint.
+
+
+-------------------------------------------------------------------------------
+  STEP 3 — ADD THE VERCEL NODE TYPES
+-------------------------------------------------------------------------------
+
+      cd "Website/backend"
+      npm install --save-dev @vercel/node
+
+  This is only for the VercelRequest / VercelResponse TypeScript types. It does
+  not change any runtime behaviour.
+
+
+-------------------------------------------------------------------------------
+  STEP 4 — INCLUDE THE NEW FOLDER IN TYPESCRIPT
+-------------------------------------------------------------------------------
+
+  Open  Website/backend/tsconfig.json  and change the "include" line from:
+
+      "include": ["src/**/*.ts", "../../shared/**/*.ts"]
+
+  to:
+
+      "include": ["src/**/*.ts", "api/**/*.ts", "../../shared/**/*.ts"]
+
+  Then verify nothing broke:
+
+      cd "Website/backend"
+      npm run typecheck
+
+  Fix any errors before deploying. A type error here becomes a build failure
+  on Vercel.
+
+
+-------------------------------------------------------------------------------
+  STEP 5 — PUSH TO GITHUB
+-------------------------------------------------------------------------------
+
+      cd "c:/Web-Dev/My_Projects/My Shop"
+      git add .
+      git status                    # confirm no .env file is staged
+      git commit -m "Add Vercel serverless entry point for the backend"
+      git push origin main
+
+
+-------------------------------------------------------------------------------
+  STEP 6 — MONGODB ATLAS  (STILL REQUIRED)
+-------------------------------------------------------------------------------
+
+  Identical to the Render route. If you already did this, skip ahead.
+
+  +------+--------------------------------------------------------------------+
+  | STEP | ACTION                                                             |
+  +------+--------------------------------------------------------------------+
+  |  1   | https://www.mongodb.com/atlas -> sign up -> create a free M0       |
+  |      | cluster, region closest to India (Mumbai)                          |
+  |  2   | Database Access -> add a user -> SAVE THE PASSWORD                 |
+  |  3   | Network Access -> Add IP -> "Allow access from anywhere" 0.0.0.0/0 |
+  |  4   | Database -> Connect -> Drivers -> copy the connection string       |
+  +------+--------------------------------------------------------------------+
+
+  Then fix the string — replace the password placeholder and add the db name:
+
+      mongodb+srv://myuser:RealPass123@cluster0.abcde.mongodb.net/ramachandra?retryWrites=true
+
+  Serverless tip: append a small pool size so each function instance holds
+  fewer connections open:
+
+      ...mongodb.net/ramachandra?retryWrites=true&maxPoolSize=5
+
+  TIP: Vercel has a MongoDB Atlas integration under the Storage / Marketplace
+  tab. Using it lets you provision and manage Atlas from inside the Vercel
+  dashboard, which gets you closest to a genuine "one dashboard" setup. It is
+  still Atlas underneath — same service, same free tier.
+
+
+-------------------------------------------------------------------------------
+  STEP 7 — DEPLOY THE BACKEND TO VERCEL
+-------------------------------------------------------------------------------
+
+  +------+--------------------------------------------------------------------+
+  | STEP | ACTION                                                             |
+  +------+--------------------------------------------------------------------+
+  |  1   | vercel.com -> Add New -> Project                                   |
+  |  2   | Import: laxtline/ramachandra-traders                               |
+  |  3   | Project Name: ramachandra-api                                      |
+  |  4   | *** Root Directory -> Edit -> Website/backend ***                  |
+  |  5   | *** Tick "Include files outside the root directory in the Build  ***|
+  |      | *** Step" — THIS IS MANDATORY, SEE THE WARNING BELOW           ***  |
+  |  6   | Framework Preset: Other                                            |
+  |  7   | Add the environment variables in the table below                   |
+  |  8   | Deploy                                                             |
+  +------+--------------------------------------------------------------------+
+
+
+  *** THE @shared WARNING — THE #1 REASON THIS ROUTE FAILS ***
+
+  Five backend files import from @shared/*:
+
+      src/controllers/orderController.ts   -> @shared/types
+      src/models/BrandConfig.ts            -> @shared/constants
+      src/models/User.ts                   -> @shared/constants
+      src/seed/brandSeed.ts                -> @shared/constants
+      (and the shared types used across the API contract)
+
+  That alias points to  ../../shared/  — two levels ABOVE the Root Directory
+  you just set. By default Vercel uploads only what is inside the Root
+  Directory, so the shared folder is simply absent and the build dies with
+  "Cannot find module '@shared/constants/index.js'".
+
+  The checkbox in step 5 is what fixes this. It is in:
+
+      Project Settings -> General -> Root Directory
+
+  If you miss it, you WILL get a module-not-found build failure.
+
+  Note on path aliases: @shared/* is a TypeScript path alias resolved via
+  tsconfig.json. Vercel's Node builder usually honours it, but this is the
+  least certain part of this whole route. If the build still cannot resolve
+  @shared after enabling the checkbox, see the FALLBACK section at the end of
+  this file.
+
+
+  BACKEND ENVIRONMENT VARIABLES (Vercel project: ramachandra-api)
+
+  +----------------------+---------------------------------------------------+
+  | VARIABLE             | VALUE                                             |
+  +----------------------+---------------------------------------------------+
+  | NODE_ENV             | production                                        |
+  | MONGODB_URI          | your Atlas string from STEP 6                     |
+  | JWT_SECRET           | a long random string — generate one, do not reuse  |
+  |                      | the local development value                       |
+  | JWT_EXPIRES_IN       | 7d                                                |
+  | GOOGLE_CLIENT_ID     | copy from local Website/backend/.env              |
+  | CLIENT_ORIGIN        | leave blank for now — filled in STEP 9            |
+  +----------------------+---------------------------------------------------+
+  | RAZORPAY_KEY_ID      | leave empty (optional feature)                    |
+  | RAZORPAY_KEY_SECRET  | leave empty (optional feature)                    |
+  | RESEND_API_KEY       | leave empty (optional feature)                    |
+  | EMAIL_FROM           | leave empty (optional feature)                    |
+  +----------------------+---------------------------------------------------+
+
+  Do NOT set PORT. There is no port in serverless.
+
+  Generate a JWT_SECRET with:
+
+      node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+
+
+  TEST IT
+
+      https://ramachandra-api.vercel.app/api/health
+
+  Expected: {"success":true,"data":{"status":"ok","uptime":...}}
+
+  Do not continue until this returns 200. If it errors, open
+  Vercel -> your project -> Deployments -> Functions -> Logs and read the
+  actual stack trace.
+
+
+-------------------------------------------------------------------------------
+  STEP 8 — DEPLOY THE FRONTEND TO VERCEL
+-------------------------------------------------------------------------------
+
+  +------+--------------------------------------------------------------------+
+  | STEP | ACTION                                                             |
+  +------+--------------------------------------------------------------------+
+  |  1   | vercel.com -> Add New -> Project                                   |
+  |  2   | Import THE SAME repo: laxtline/ramachandra-traders                 |
+  |  3   | Project Name: ramachandra-web                                      |
+  |  4   | *** Root Directory -> Edit -> Website/frontend ***                 |
+  |  5   | Framework Preset: Next.js (auto-detected)                          |
+  |  6   | Add the environment variables below                                |
+  |  7   | Deploy                                                             |
+  +------+--------------------------------------------------------------------+
+
+  The frontend ALSO needs the "include files outside root directory" checkbox
+  if it imports from @shared/*. Turn it on to be safe — it costs nothing.
+
+
+  FRONTEND ENVIRONMENT VARIABLES (Vercel project: ramachandra-web)
+
+  +--------------------------------+------------------------------------------+
+  | VARIABLE                       | VALUE                                    |
+  +--------------------------------+------------------------------------------+
+  | NEXT_PUBLIC_API_URL            | https://ramachandra-api.vercel.app       |
+  | NEXT_PUBLIC_GOOGLE_CLIENT_ID   | copy from local .env.local               |
+  | NEXT_PUBLIC_SITE_URL           | https://ramachandra-web.vercel.app       |
+  +--------------------------------+------------------------------------------+
+
+  No trailing slashes. Must be https.
+
+
+-------------------------------------------------------------------------------
+  STEP 9 — WIRE THEM TOGETHER
+-------------------------------------------------------------------------------
+
+  +-------------------+------------------------+---------------------------+
+  | VERCEL PROJECT    | VARIABLE               | SET TO                    |
+  +-------------------+------------------------+---------------------------+
+  | ramachandra-api   | CLIENT_ORIGIN          | https://ramachandra-web   |
+  |                   |                        |     .vercel.app           |
+  | ramachandra-web   | NEXT_PUBLIC_SITE_URL   | https://ramachandra-web   |
+  |                   |                        |     .vercel.app           |
+  +-------------------+------------------------+---------------------------+
+
+  No trailing slash. Redeploy BOTH projects after saving.
+
+  Then in Google Cloud Console:
+
+  +--------------------------------+------------------------------------------+
+  | Authorized JavaScript origins  | https://ramachandra-web.vercel.app       |
+  | Authorized domains             | vercel.app                               |
+  +--------------------------------+------------------------------------------+
+
+  Full detail: docs/GOOGLE_SIGNIN_SETUP.txt
+
+
+-------------------------------------------------------------------------------
+  STEP 10 — SEED THE DATABASE
+-------------------------------------------------------------------------------
+
+  Vercel has no Shell tab. You cannot run "npm run seed" on the server the way
+  you can on Render. Run it from your own machine instead, pointed at Atlas:
+
+      1. Open Website/backend/.env
+      2. Temporarily replace MONGODB_URI with your Atlas string
+      3. Run:
+
+             cd "Website/backend"
+             npm run seed
+
+      4. Change MONGODB_URI back to your local value:
+
+             MONGODB_URI=mongodb://127.0.0.1:27017/ramachandra
+
+  Run the seed exactly once. Running it twice duplicates the demo products.
+
+  Remember: .env is gitignored, so this temporary edit never reaches GitHub.
+
+
+===============================================================================
+  RENDER vs VERCEL SERVERLESS — HONEST COMPARISON
+===============================================================================
+
+  +------------------------+---------------------------+---------------------+
+  | FACTOR                 | RENDER (current setup)    | VERCEL SERVERLESS   |
+  +------------------------+---------------------------+---------------------+
+  | Dashboards to manage   | 3 (Render+Vercel+Atlas)   | 2 (Vercel+Atlas)    |
+  +------------------------+---------------------------+---------------------+
+  | Pre-configured in repo | YES — render.yaml exists  | NO — 2 new files    |
+  +------------------------+---------------------------+---------------------+
+  | Tested for this project| YES                       | NO                  |
+  +------------------------+---------------------------+---------------------+
+  | Cold start delay       | 30-60 SECONDS after       | under 1 second      |
+  |                        | 15 min idle — very        |                     |
+  |                        | noticeable to visitors    |                     |
+  +------------------------+---------------------------+---------------------+
+  | Always-on process      | Yes (while awake)         | No — per request    |
+  +------------------------+---------------------------+---------------------+
+  | Request time limit     | None                      | 10s (Hobby plan)    |
+  +------------------------+---------------------------+---------------------+
+  | Persistent disk        | No (free tier)            | No                  |
+  +------------------------+---------------------------+---------------------+
+  | DB connection handling | Simple — one pool         | Needs the caching   |
+  |                        |                           | guard from STEP 1   |
+  +------------------------+---------------------------+---------------------+
+  | Rate limiting accuracy | Accurate (one process)    | Weaker — in-memory  |
+  |                        |                           | counters reset per  |
+  |                        |                           | instance            |
+  +------------------------+---------------------------+---------------------+
+  | Free tier cost         | Free                      | Free                |
+  +------------------------+---------------------------+---------------------+
+
+  THE HEADLINE TRADE-OFF
+
+    Render's killer weakness is the cold start. On the free tier the service
+    sleeps after 15 minutes of no traffic, and the next visitor waits 30 to 60
+    seconds staring at a blank page. For a portfolio piece or a live shop being
+    shown to a client, that is genuinely bad.
+
+    Vercel serverless cold starts are typically under a second. If you are
+    showing this project to people, that difference alone can justify the
+    extra setup work.
+
+    Against that: Render is already wired up and known to work here, and the
+    10-second function limit plus weaker rate limiting are real constraints if
+    the app grows.
+
+
+===============================================================================
+  WHAT BREAKS ON SERVERLESS — KNOW BEFORE YOU SWITCH
+===============================================================================
+
+  1. IMAGE UPLOADS
+
+     Website/backend/src/controllers/uploadController.ts writes files to disk:
+
+         fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
+
+     Serverless functions have a read-only filesystem apart from /tmp, and /tmp
+     is wiped between invocations. Admin image uploads will appear to succeed
+     but the images will 404 shortly after.
+
+     WORKAROUND: in the admin product form, paste image URLs instead of
+     uploading files. The product model stores URLs either way.
+
+     PROPER FIX (later): move uploads to Cloudinary, UploadThing, or Vercel
+     Blob. All have free tiers.
+
+     IMPORTANT: this is ALREADY broken on Render's free tier for exactly the
+     same reason (ephemeral disk). You are not losing a working feature.
+
+
+  2. RATE LIMITING BECOMES APPROXIMATE
+
+     express-rate-limit keeps counters in memory. With one Render process,
+     that memory is shared and the limit is exact. With serverless, each warm
+     instance has its own counters, so the effective limit is higher than
+     configured.
+
+     For this project's traffic level this is acceptable. If it ever matters,
+     move the store to Upstash Redis.
+
+
+  3. NO SHELL ACCESS
+
+     No "npm run seed" on the server. Seed from your local machine pointed at
+     Atlas (STEP 10).
+
+
+  4. 10-SECOND FUNCTION TIMEOUT ON THE HOBBY PLAN
+
+     Every normal request in this app finishes in well under a second. The
+     only realistic risk is the seed script, which you are running locally
+     anyway. Not a practical concern.
+
+
+===============================================================================
+  METHOD B — ONE VERCEL PROJECT, BACKEND PROXIED THROUGH THE FRONTEND
+===============================================================================
+
+  A variation worth knowing about: instead of two Vercel projects, keep one
+  frontend project and proxy API calls to the backend project using Next.js
+  rewrites in Website/frontend/next.config.ts:
+
+      async rewrites() {
+        return [
+          {
+            source: "/api/:path*",
+            destination: "https://ramachandra-api.vercel.app/api/:path*",
+          },
+        ];
+      }
+
+  Then set NEXT_PUBLIC_API_URL to an empty string so the frontend calls
+  same-origin /api/... paths.
+
+  THE REAL BENEFIT: the auth cookie becomes same-origin instead of cross-site.
+  That sidesteps the entire Secure + SameSite=None cookie problem and makes
+  login immune to browsers tightening third-party cookie rules.
+
+  THE COST: every API call takes an extra network hop (browser -> frontend
+  project -> backend project), adding latency. And you still have two Vercel
+  projects underneath — this does not reduce the setup, it only changes how
+  the browser reaches the API.
+
+  Worth doing ONLY if you hit cookie problems. Do not start here.
+
+
+===============================================================================
+  METHOD C — REWRITE THE BACKEND AS NEXT.JS API ROUTES
+===============================================================================
+
+  This is the only route that is genuinely ONE Vercel project. You would move
+  every Express route into Next.js App Router route handlers under
+  Website/frontend/src/app/api/.
+
+  NOT RECOMMENDED. Here is what it actually costs:
+
+  +----------------------------------+--------------------------------------+
+  | WHAT YOU WOULD HAVE TO REWRITE   | SCALE                                |
+  +----------------------------------+--------------------------------------+
+  | Every route file                 | 13 route modules                     |
+  | Every controller                 | All of them — different req/res API  |
+  | Auth middleware                  | Express middleware does not exist in |
+  |                                  | Next route handlers                  |
+  | Rate limiting                    | express-rate-limit unusable          |
+  | Helmet / CORS                    | Replaced by Next middleware + headers|
+  | The smoke test suite             | Rewritten from scratch               |
+  | The Postman collection           | All 41 endpoints re-verified         |
+  +----------------------------------+--------------------------------------+
+
+  That is days of work, it throws away a tested backend and its test suite,
+  and it gains you one dashboard. It also couples your API to Next.js, so the
+  Android/iOS Expo app would depend on the website's framework.
+
+  Documented here only so you know it exists and know why to say no.
+
+
+===============================================================================
+  FALLBACK — IF @shared STILL WILL NOT RESOLVE
+===============================================================================
+
+  If, after enabling "Include files outside the root directory", the build
+  still fails with "Cannot find module '@shared/...'", the path alias is not
+  being resolved by the bundler. Three options, easiest first:
+
+  OPTION 1 — Add tsconfig-paths resolution
+      Ensure Website/backend/tsconfig.json has both "baseUrl": "." and the
+      "@shared/*" paths entry (it already does), and confirm the build log
+      shows the shared folder was uploaded.
+
+  OPTION 2 — Copy shared into the backend at build time
+      Add a prebuild step in Website/backend/package.json:
+
+          "vercel-build": "cp -r ../../shared ./shared"
+
+      and change the alias target to "./shared/*". Ugly but reliable.
+
+  OPTION 3 — Give up on this route
+      Use Render. render.yaml already handles the monorepo correctly, and the
+      whole class of problem disappears.
+
+  Option 3 is not a failure. Knowing when a path is costing more than it
+  returns is a normal engineering decision.
+
+
+===============================================================================
+  DECISION SUMMARY
+===============================================================================
+
+  +--------------------------------------+----------------------------------+
+  | YOUR SITUATION                       | USE                              |
+  +--------------------------------------+----------------------------------+
+  | Want it live today, minimum risk     | Render                           |
+  |                                      | (docs/DEPLOY_STEP_BY_STEP.txt)   |
+  +--------------------------------------+----------------------------------+
+  | Showing it to clients or recruiters, | Vercel serverless (this file) —  |
+  | the 30-60s cold start is unacceptable| sub-second cold starts           |
+  +--------------------------------------+----------------------------------+
+  | Want fewer dashboards to manage      | Vercel serverless (this file)    |
+  +--------------------------------------+----------------------------------+
+  | Not comfortable debugging a build    | Render                           |
+  | failure on your own                  |                                  |
+  +--------------------------------------+----------------------------------+
+
+  A REASONABLE STRATEGY: deploy on Render first, because it is pre-wired and
+  will work. Get the site live and verified. THEN try this Vercel route as a
+  second deployment while the Render one keeps serving. If Vercel works, point
+  your domain at it and delete the Render service. If it does not, you have
+  lost nothing and your site was never down.
+
+
+===============================================================================
+  FILES YOU ADD FOR THIS ROUTE — QUICK REFERENCE
+===============================================================================
+
+  +-----------------------------------+----------------------------------------+
+  | FILE                              | PURPOSE                                |
+  +-----------------------------------+----------------------------------------+
+  | Website/backend/api/index.ts      | Serverless entry: wraps createApp()    |
+  |                                   | and caches the DB connection           |
+  | Website/backend/vercel.json       | Routes all paths to that one function  |
+  +-----------------------------------+----------------------------------------+
+
+  FILES YOU EDIT
+
+  +-----------------------------------+----------------------------------------+
+  | Website/backend/tsconfig.json     | Add "api/**/*.ts" to "include"         |
+  | Website/backend/package.json      | Add @vercel/node to devDependencies    |
+  +-----------------------------------+----------------------------------------+
+
+  FILES YOU DO NOT TOUCH
+
+    src/app.ts, src/index.ts, all controllers, all models, all routes.
+    Nothing in the existing backend changes. Local development with
+    "npm run dev" keeps working exactly as before, because src/index.ts is
+    untouched and still calls app.listen().
+
+    render.yaml can also stay. Keeping it means you can go back to Render at
+    any time with no code changes at all.
+
+===============================================================================

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { loginWithGoogle } from "@/store/authSlice";
+import { loginWithGoogle, setAuthError } from "@/store/authSlice";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
@@ -69,7 +69,14 @@ export function LoginDialog({
                   if (cred.credential) dispatch(loginWithGoogle(cred.credential));
                 }}
                 onError={() => {
-                  /* surfaced via slice error */
+                  // See AuthGate: Google's own widget can fail before
+                  // `loginWithGoogle` is ever dispatched, leaving the user with
+                  // a dead button and no message unless we set the error here.
+                  dispatch(
+                    setAuthError(
+                      "Google sign-in could not start. Allow pop-ups for this site and try again."
+                    )
+                  );
                 }}
                 theme="filled_blue"
                 size="large"

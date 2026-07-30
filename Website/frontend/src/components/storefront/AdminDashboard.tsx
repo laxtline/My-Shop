@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import type { Order, OrderStatus, Paginated } from "@shared/types";
+import type { Order, OrderStats, OrderStatus, Paginated } from "@shared/types";
 import { apiFetch } from "@/lib/api";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Button } from "@/components/ui/Button";
@@ -11,12 +11,6 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { OrderStatusBadge } from "./OrderStatusBadge";
 import { AdminTabs } from "./AdminTabs";
 import { formatINR } from "@/lib/format";
-
-interface Stats {
-  totalOrders: number;
-  revenue: number;
-  statusCounts: Record<string, number>;
-}
 
 // Allowed forward transitions — mirrors the server's STATUS_FLOW.
 const NEXT_STATUS: Record<OrderStatus, OrderStatus[]> = {
@@ -38,7 +32,7 @@ export function AdminDashboard() {
 }
 
 function Dashboard() {
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<OrderStats | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<OrderStatus | "ALL">("ALL");
   const [loading, setLoading] = useState(true);
@@ -51,7 +45,7 @@ function Dashboard() {
     try {
       const query = filter === "ALL" ? "" : `?status=${filter}`;
       const [s, list] = await Promise.all([
-        apiFetch<Stats>("/api/orders/admin/stats"),
+        apiFetch<OrderStats>("/api/orders/admin/stats"),
         apiFetch<Paginated<Order>>(`/api/orders/admin/all${query}`),
       ]);
       setStats(s);

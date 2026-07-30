@@ -145,7 +145,12 @@ function IconLink({
     >
       <span aria-hidden>{icon}</span>
       {count > 0 && (
-        <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-brand px-1 text-[11px] font-bold text-white">
+        // aria-hidden: the count is already in the link's aria-label above, so
+        // exposing it again makes screen readers announce it twice.
+        <span
+          aria-hidden
+          className="absolute -right-0.5 -top-0.5 grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-brand px-1 text-[11px] font-bold text-white"
+        >
           {count > 99 ? "99+" : count}
         </span>
       )}

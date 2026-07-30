@@ -1,0 +1,555 @@
+===============================================================================
+  RAMACHANDRA TRADERS — STEP-BY-STEP DEPLOYMENT GUIDE
+  GitHub push  ->  MongoDB Atlas  ->  Render  ->  Vercel
+===============================================================================
+
+  This is the checklist version: every step, every environment variable, every
+  common error in one place. Follow it top to bottom.
+
+  Companion files:
+    docs/DEPLOY_GUIDE.txt          - the original reference guide
+    docs/GOOGLE_SIGNIN_SETUP.txt   - Google OAuth console setup in full detail
+    docs/AFTER_DEPLOY_CHECKLIST.txt
+
+  Total time: about 60 minutes the first time. After that, updates take
+  one command.
+
+
+-------------------------------------------------------------------------------
+  READ THIS FIRST — A COMMON MISUNDERSTANDING
+-------------------------------------------------------------------------------
+
+  "It's a Next.js project, so Vercel alone is enough."   <-- THIS IS WRONG.
+
+  Vercel hosts ONLY the frontend. This is a full-stack application:
+
+      Frontend (Next.js)  -> Vercel
+      Backend  (Express)  -> Render
+      Database (MongoDB)  -> MongoDB Atlas
+
+  If you deploy only to Vercel, the site will open but nothing will work:
+  no products, no login, no cart, no orders. There is no API behind it.
+
+  All three services are required. All three are free.
+
+
+-------------------------------------------------------------------------------
+  OVERVIEW — THREE SERVICES
+-------------------------------------------------------------------------------
+
+  +---+------------------+------------------------------+-------+---------+
+  | # | SERVICE          | WHAT IT HOSTS                | COST  | TIME    |
+  +---+------------------+------------------------------+-------+---------+
+  | 1 | MongoDB Atlas    | Database: products, orders,  | Free  | 10 min  |
+  |   |                  | users, reviews               |       |         |
+  +---+------------------+------------------------------+-------+---------+
+  | 2 | Render           | Backend API (Express)        | Free  | 15 min  |
+  +---+------------------+------------------------------+-------+---------+
+  | 3 | Vercel           | Frontend storefront (Next.js)| Free  | 10 min  |
+  +---+------------------+------------------------------+-------+---------+
+
+  ORDER MATTERS: Atlas -> Render -> Vercel -> connect them together.
+
+  Reason: the frontend needs the backend's URL, and the backend needs the
+  frontend's URL. You cannot know either until each is deployed, so you deploy
+  in this order and then go back and wire them together in PART 4.
+
+
+===============================================================================
+  PART 0 — PUSH TO GITHUB
+===============================================================================
+
+  YOUR REPOSITORY
+
+  +---------------------+---------------------------------------------------+
+  | Remote              | https://github.com/laxtline/ramachandra-traders   |
+  | Branch              | main                                              |
+  | Unpushed commit     | de37878  "Update support phone number"             |
+  | Uncommitted files   | ~25 modified + 4 new                              |
+  +---------------------+---------------------------------------------------+
+
+  COMMANDS — run from the project root
+
+      cd "c:/Web-Dev/My_Projects/My Shop"
+
+      # 1. See what will be committed
+      git status
+
+      # 2. Stage everything
+      git add .
+
+      # 3. VERIFY nothing secret got staged  (do not skip this)
+      git status
+
+      # 4. Commit
+      git commit -m "Payment section dark mode fix + deployment docs"
+
+      # 5. Push
+      git push origin main
+
+
+  SAFETY CHECK BEFORE COMMITTING
+
+  These must NOT appear in `git status`:
+
+  +--------------------------------------+------------------------------------+
+  | FILE                                 | WHY IT MUST NOT BE PUSHED          |
+  +--------------------------------------+------------------------------------+
+  | Website/backend/.env                 | Contains your JWT_SECRET           |
+  | Website/frontend/.env.local          | Contains your config keys          |
+  | vercel-env.ps1                       | May contain secrets                |
+  | node_modules/                        | Huge and unnecessary               |
+  +--------------------------------------+------------------------------------+
+
+  All of these are already listed in .gitignore, but confirm with your own eyes.
+  If one does appear, stop and remove it from staging before committing:
+
+      git reset HEAD Website/backend/.env
+
+
+===============================================================================
+  PART 1 — MONGODB ATLAS (DATABASE)
+===============================================================================
+
+  +------+--------------------------------------------------------------------+
+  | STEP | ACTION                                                             |
+  +------+--------------------------------------------------------------------+
+  |  1   | Go to https://www.mongodb.com/atlas and sign up (free)             |
+  |  2   | Create a free M0 cluster. Pick the region closest to India         |
+  |      | (Mumbai) for the lowest latency.                                   |
+  |  3   | Database Access -> Add New Database User.                          |
+  |      | Set a username and password. SAVE THE PASSWORD SOMEWHERE.          |
+  |  4   | Network Access -> Add IP Address -> "Allow access from anywhere"   |
+  |      | (0.0.0.0/0). Render's IP is dynamic, so this is required.          |
+  |  5   | Database -> Connect -> Drivers -> copy the connection string       |
+  +------+--------------------------------------------------------------------+
+
+
+  FIX THE CONNECTION STRING BEFORE USING IT
+
+  Atlas gives you a template that will NOT work as-is:
+
+      mongodb+srv://myuser:<password>@cluster0.abcde.mongodb.net/?retryWrites=true
+
+  You must make two edits — replace the password, and add the database name:
+
+      mongodb+srv://myuser:RealPass123@cluster0.abcde.mongodb.net/ramachandra?retryWrites=true
+                             ^^^^^^^^^^^                          ^^^^^^^^^^^^^
+                             your real password                   database name
+
+
+  +-----------------------------------+--------------------------------------+
+  | COMMON MISTAKE                    | FIX                                  |
+  +-----------------------------------+--------------------------------------+
+  | Left <password> as literal text   | Replace it. Remove the < > brackets  |
+  | Forgot the /ramachandra db name   | Add it right before the ? character  |
+  | Password contains @ # / % : ?     | URL-encode it, or simply set a       |
+  |                                   | password with letters + numbers only |
+  +-----------------------------------+--------------------------------------+
+
+  Save this final string. You will need it in PART 2.
+
+
+===============================================================================
+  PART 2 — RENDER (BACKEND API)
+===============================================================================
+
+  +------+--------------------------------------------------------------------+
+  | STEP | ACTION                                                             |
+  +------+--------------------------------------------------------------------+
+  |  1   | Go to https://render.com and sign up WITH GITHUB                   |
+  |  2   | Click "New +" -> "Blueprint"                                       |
+  |  3   | Select the repository: laxtline/ramachandra-traders                |
+  |  4   | Render automatically reads render.yaml from the repo root          |
+  |  5   | Click "Apply"                                                      |
+  +------+--------------------------------------------------------------------+
+
+  Because render.yaml already exists, Render knows the root directory, build
+  command, start command, and health check path. You do not configure those
+  by hand.
+
+
+  BACKEND ENVIRONMENT VARIABLES
+  Render dashboard -> your service -> Environment
+
+  +----------------------+------------------------------+--------------------+
+  | VARIABLE             | VALUE                        | WHO SETS IT        |
+  +----------------------+------------------------------+--------------------+
+  | NODE_ENV             | production                   | AUTO (render.yaml) |
+  | JWT_SECRET           | (random, auto-generated)     | AUTO (render.yaml) |
+  | JWT_EXPIRES_IN       | 7d                           | AUTO (render.yaml) |
+  | PORT                 | (leave blank)                | AUTO (Render)      |
+  +----------------------+------------------------------+--------------------+
+  | MONGODB_URI          | your Atlas string from PART 1| YOU — required     |
+  | GOOGLE_CLIENT_ID     | copy from your local         | YOU — required     |
+  |                      | Website/backend/.env         |                    |
+  | CLIENT_ORIGIN        | LEAVE BLANK FOR NOW —        | YOU — in PART 4    |
+  |                      | you don't know the Vercel    |                    |
+  |                      | URL yet                      |                    |
+  +----------------------+------------------------------+--------------------+
+  | RAZORPAY_KEY_ID      | (leave empty)                | Optional           |
+  | RAZORPAY_KEY_SECRET  | (leave empty)                | Optional           |
+  | RESEND_API_KEY       | (leave empty)                | Optional           |
+  | EMAIL_FROM           | (leave empty)                | Optional           |
+  +----------------------+------------------------------+--------------------+
+
+  The optional variables control feature flags. Leaving them empty simply
+  disables online payment and order emails. The app works fully without them.
+
+
+  AFTER THE DEPLOY FINISHES
+
+  1. Copy your backend URL. It will look like:
+
+         https://ramachandra-traders-api.onrender.com
+
+  2. Test it — open this in a browser:
+
+         https://ramachandra-traders-api.onrender.com/api/health
+
+     Expected response:
+         {"success":true,"data":{"status":"ok","uptime":12.34}}
+
+     If you get an error instead, check the Render logs before continuing.
+     Do not move to PART 3 until health check passes.
+
+
+  SEED THE DATABASE (ONE TIME ONLY)
+
+  The database is empty at this point. Load the branding and 72 demo products:
+
+      Render dashboard -> your service -> "Shell" tab -> run:
+
+          npm run seed
+
+  Run this exactly once. Running it again will duplicate the demo data.
+
+
+===============================================================================
+  PART 3 — VERCEL (FRONTEND)
+===============================================================================
+
+  +------+--------------------------------------------------------------------+
+  | STEP | ACTION                                                             |
+  +------+--------------------------------------------------------------------+
+  |  1   | Go to https://vercel.com and sign up WITH GITHUB                   |
+  |  2   | Click "Add New" -> "Project"                                       |
+  |  3   | Import the repository: laxtline/ramachandra-traders                |
+  |  4   | *** Root Directory -> click "Edit" -> set to: Website/frontend *** |
+  |  5   | Framework Preset: Next.js (auto-detected, leave it)                |
+  |  6   | Add the environment variables listed below                         |
+  |  7   | Click "Deploy"                                                     |
+  +------+--------------------------------------------------------------------+
+
+
+  *** STEP 4 IS THE SINGLE MOST COMMON DEPLOYMENT FAILURE ***
+
+  This is a monorepo. The Next.js app is not at the repository root — it lives
+  in Website/frontend. If you leave Root Directory at the default, Vercel looks
+  for package.json at the root, does not find one, and the build fails with
+  "No package.json found" or "No Next.js version detected".
+
+
+  FRONTEND ENVIRONMENT VARIABLES
+  Add these BEFORE clicking Deploy.
+
+  +--------------------------------+----------------------------------------+
+  | VARIABLE                       | VALUE                                  |
+  +--------------------------------+----------------------------------------+
+  | NEXT_PUBLIC_API_URL            | https://ramachandra-traders-api        |
+  |                                |     .onrender.com                      |
+  |                                | (your real Render URL from PART 2)     |
+  +--------------------------------+----------------------------------------+
+  | NEXT_PUBLIC_GOOGLE_CLIENT_ID   | copy from your local                   |
+  |                                | Website/frontend/.env.local            |
+  +--------------------------------+----------------------------------------+
+  | NEXT_PUBLIC_SITE_URL           | https://your-app.vercel.app            |
+  |                                | You don't know this yet — put any      |
+  |                                | placeholder, then fix it in PART 4     |
+  +--------------------------------+----------------------------------------+
+
+
+  RULES FOR THESE VALUES
+
+  +-------------------------------+------------------------------------------+
+  | RULE                          | EXAMPLE                                  |
+  +-------------------------------+------------------------------------------+
+  | No trailing slash             | .../onrender.com/   WRONG                |
+  |                               | .../onrender.com    RIGHT                |
+  | Must be https, not http       | http://...onrender.com   WRONG           |
+  | No path at the end            | .../onrender.com/api   WRONG             |
+  +-------------------------------+------------------------------------------+
+
+
+  IMPORTANT — HOW NEXT_PUBLIC_ VARIABLES WORK
+
+  Any variable starting with NEXT_PUBLIC_ is baked into the JavaScript bundle
+  at BUILD time, not read at run time. If you change one of these later, you
+  MUST trigger a redeploy — otherwise the old value stays live even though the
+  dashboard shows the new one.
+
+      Vercel -> Deployments -> latest deployment -> "..." menu -> Redeploy
+
+  Also note: NEXT_PUBLIC_ values are visible to anyone who opens the browser
+  devtools. That is by design and is safe here — an API URL and a Google
+  Client ID are not secrets. Never put a password or private key behind a
+  NEXT_PUBLIC_ prefix.
+
+
+===============================================================================
+  PART 4 — CONNECT BACKEND AND FRONTEND  (CRITICAL STEP)
+===============================================================================
+
+  You now have both URLs. Go back and fill in the blanks you left earlier.
+
+  +---------------+-------------------------+-------------------------------+
+  | WHERE         | VARIABLE                | SET IT TO                     |
+  +---------------+-------------------------+-------------------------------+
+  | Render        | CLIENT_ORIGIN           | https://your-app.vercel.app   |
+  | Vercel        | NEXT_PUBLIC_SITE_URL    | https://your-app.vercel.app   |
+  +---------------+-------------------------+-------------------------------+
+
+  No trailing slash on either. Then REDEPLOY BOTH services.
+
+  What CLIENT_ORIGIN does: it is the CORS allow-list. The backend refuses
+  browser requests from any origin not on this list. If it is blank or wrong,
+  every API call from your live site fails with a CORS error.
+
+  For multiple domains, use a comma-separated list with no spaces:
+
+      CLIENT_ORIGIN=https://your-app.vercel.app,https://ramachandratraders.com
+
+
+  ALSO UPDATE GOOGLE CLOUD CONSOLE
+
+  +--------------------------------+----------------------------------------+
+  | SETTING                        | ADD THIS VALUE                         |
+  +--------------------------------+----------------------------------------+
+  | Authorized JavaScript origins  | https://your-app.vercel.app            |
+  | Authorized domains             | vercel.app                             |
+  +--------------------------------+----------------------------------------+
+
+  Full walkthrough with screenshots of every field:
+      docs/GOOGLE_SIGNIN_SETUP.txt
+
+
+  ABOUT CROSS-SITE COOKIES
+
+  Your frontend (vercel.app) and backend (onrender.com) are on different
+  domains, so the auth cookie is a cross-site cookie. The backend already
+  handles this: in production it sets the cookie with Secure + SameSite=None.
+
+  This only works when NODE_ENV=production is actually set on Render. If login
+  appears to succeed but the user is immediately logged out, check that first.
+
+
+===============================================================================
+  PART 5 — TESTING CHECKLIST
+===============================================================================
+
+  Open your live Vercel URL and walk through all of these:
+
+  +----+--------------------------------+--------------------------------------+
+  | #  | TEST                           | EXPECTED RESULT                      |
+  +----+--------------------------------+--------------------------------------+
+  |  1 | Open the site                  | Homepage loads, logo visible         |
+  |  2 | Scroll the product grid        | 72 products appear                   |
+  |  3 | Click any product              | Detail page: images, price, stock    |
+  |  4 | Use the search box             | Matching results returned            |
+  |  5 | Apply a category filter        | Product list narrows correctly       |
+  |  6 | Click Sign in with Google      | Login succeeds, name in the header   |
+  |  7 | Add an item to cart            | Cart badge count increases           |
+  |  8 | Click a wishlist heart         | Item saves, persists on refresh      |
+  |  9 | Open the checkout page         | Payment section text is fully        |
+  |    |                                | readable (this was the bug you found)|
+  | 10 | Toggle dark mode               | All text stays readable everywhere   |
+  | 11 | Place a COD order              | Order confirmation appears           |
+  | 12 | Open "My orders"               | The order shows with its status      |
+  | 13 | Resize to mobile width         | Layout is responsive, nav works      |
+  | 14 | Open /sitemap.xml              | Returns XML content                  |
+  | 15 | Open /robots.txt               | Returns text content                 |
+  +----+--------------------------------+--------------------------------------+
+
+  ADMIN CHECKS (log in as the admin account)
+
+  +----+--------------------------------+--------------------------------------+
+  | 16 | Open /admin                    | Dashboard tabs are visible           |
+  | 17 | Admin -> Products -> Add       | Product is created and appears       |
+  | 18 | Admin -> Orders                | Your test order is listed            |
+  | 19 | Admin -> Analytics             | Stats and revenue chart render       |
+  +----+--------------------------------+--------------------------------------+
+
+  The admin account is defined in shared/constants/index.ts (ADMIN_EMAIL).
+  Every other Google account signs in as a normal USER.
+
+
+===============================================================================
+  PART 6 — FUTURE UPDATES
+===============================================================================
+
+  Once the initial setup is done, deploying a change takes one command:
+
+      git add .
+      git commit -m "describe your change"
+      git push origin main
+
+  +-----------+--------------------------------------------+----------------+
+  | SERVICE   | WHAT HAPPENS AUTOMATICALLY                 | TIME TO LIVE   |
+  +-----------+--------------------------------------------+----------------+
+  | Vercel    | Detects the push, rebuilds, goes live      | about 2 min    |
+  | Render    | Detects the push, rebuilds, goes live      | about 5 min    |
+  +-----------+--------------------------------------------+----------------+
+
+  You do not need to touch either dashboard. Both watch the main branch.
+
+
+  THE ONE EXCEPTION
+
+  Environment variables are NOT deployed by git push. The .env files are in
+  .gitignore and never leave your machine. If you add or change an environment
+  variable, you must update it manually in the Render and/or Vercel dashboard
+  and then redeploy that service.
+
+
+===============================================================================
+  PART 7 — COMMON ERRORS AND FIXES
+===============================================================================
+
+  +------------------------------+----------------------+---------------------+
+  | ERROR YOU SEE                | REAL CAUSE           | FIX                 |
+  +------------------------------+----------------------+---------------------+
+  | Vercel build fails:          | Root Directory not   | Vercel Settings ->  |
+  | "No package.json found" or   | set for the monorepo | General -> Root     |
+  | "No Next.js version detected"|                      | Directory ->        |
+  |                              |                      | Website/frontend    |
+  +------------------------------+----------------------+---------------------+
+  | Site loads but shows         | Backend is down, or  | Test /api/health.   |
+  | zero products                | database not seeded  | Then Render Shell:  |
+  |                              |                      | npm run seed        |
+  +------------------------------+----------------------+---------------------+
+  | CORS error in the browser    | CLIENT_ORIGIN is     | Render -> set exact |
+  | console                      | missing or wrong     | Vercel URL, no      |
+  |                              |                      | trailing slash,     |
+  |                              |                      | then redeploy       |
+  +------------------------------+----------------------+---------------------+
+  | First request takes          | Render free tier     | Normal behaviour.   |
+  | 30-60 seconds                | sleeps after 15 min  | Upgrade, or ping it |
+  |                              | of no traffic        | with UptimeRobot    |
+  +------------------------------+----------------------+---------------------+
+  | Google login:                | Your live URL is not | Google Console ->   |
+  | "Access blocked"             | in Authorized        | add the exact       |
+  |                              | JavaScript origins   | https Vercel URL    |
+  +------------------------------+----------------------+---------------------+
+  | Google login:                | App is in Testing    | Add the email as a  |
+  | "app not verified"           | mode, email is not   | Test User, or       |
+  |                              | whitelisted          | publish the app     |
+  +------------------------------+----------------------+---------------------+
+  | Backend crashes on start     | MONGODB_URI is       | Check you replaced  |
+  |                              | malformed            | <password> and      |
+  |                              |                      | added /ramachandra  |
+  +------------------------------+----------------------+---------------------+
+  | MongoDB connection timeout   | Atlas IP whitelist   | Atlas -> Network    |
+  |                              | blocks Render        | Access -> 0.0.0.0/0 |
+  +------------------------------+----------------------+---------------------+
+  | Login works, then every API  | GOOGLE_CLIENT_ID     | Make Render and     |
+  | call returns 401             | differs between      | Vercel use the      |
+  |                              | frontend and backend | identical value     |
+  +------------------------------+----------------------+---------------------+
+  | Logged out immediately after | NODE_ENV is not      | Render -> set       |
+  | a successful login           | "production", so the | NODE_ENV=production |
+  |                              | cross-site cookie is | -> redeploy         |
+  |                              | rejected             |                     |
+  +------------------------------+----------------------+---------------------+
+  | Changed an env var but       | NEXT_PUBLIC_ vars    | Vercel ->           |
+  | nothing changed on the site  | are baked at build   | Deployments ->      |
+  |                              | time                 | Redeploy            |
+  +------------------------------+----------------------+---------------------+
+  | Uploaded product images      | Render free tier has | Use image URLs      |
+  | disappear after a redeploy   | an ephemeral disk    | instead, or add     |
+  |                              |                      | Cloudinary later    |
+  +------------------------------+----------------------+---------------------+
+
+
+===============================================================================
+  PART 8 — CUSTOM DOMAIN  (OPTIONAL)
+===============================================================================
+
+  +------+--------------------------------------------------------------------+
+  | STEP | ACTION                                                             |
+  +------+--------------------------------------------------------------------+
+  |  1   | Buy a domain from GoDaddy, Namecheap, or Hostinger                 |
+  |      | (roughly Rs. 800 per year for a .com)                              |
+  |  2   | Vercel -> your project -> Settings -> Domains -> Add               |
+  |  3   | Vercel shows you DNS records. Add them at your domain registrar.   |
+  |  4   | Wait for DNS propagation: 10 minutes to 24 hours                   |
+  |  5   | SSL/HTTPS is issued automatically and free by Vercel — do nothing  |
+  +------+--------------------------------------------------------------------+
+
+
+  AFTER THE DOMAIN GOES LIVE, UPDATE FOUR PLACES
+
+  +------------------+----------------------+-------------------------------+
+  | WHERE            | SETTING              | NEW VALUE                     |
+  +------------------+----------------------+-------------------------------+
+  | Vercel           | NEXT_PUBLIC_SITE_URL | https://ramachandratraders.com|
+  +------------------+----------------------+-------------------------------+
+  | Render           | CLIENT_ORIGIN        | https://ramachandratraders.com|
+  |                  |                      | ,https://www.ramachandra      |
+  |                  |                      | traders.com                   |
+  |                  |                      | (comma-separated, no spaces)  |
+  +------------------+----------------------+-------------------------------+
+  | Google Console   | Authorized           | Add BOTH the www and non-www  |
+  |                  | JavaScript origins   | https versions                |
+  +------------------+----------------------+-------------------------------+
+  | Google Console   | Authorized domains   | ramachandratraders.com        |
+  |                  |                      | (bare domain, no https://)    |
+  +------------------+----------------------+-------------------------------+
+
+  Then redeploy both Vercel and Render.
+
+
+===============================================================================
+  TIME ESTIMATE
+===============================================================================
+
+  +--------------------------------+------------+
+  | PART                           | TIME       |
+  +--------------------------------+------------+
+  | PART 0  GitHub push            |  5 min     |
+  | PART 1  MongoDB Atlas          | 10 min     |
+  | PART 2  Render backend         | 15 min     |
+  | PART 3  Vercel frontend        | 10 min     |
+  | PART 4  Connect + Google       | 10 min     |
+  | PART 5  Testing                | 10 min     |
+  +--------------------------------+------------+
+  | TOTAL                          | ~60 min    |
+  +--------------------------------+------------+
+
+
+===============================================================================
+  THE TWO THINGS THAT BREAK MOST DEPLOYMENTS
+===============================================================================
+
+  1. VERCEL ROOT DIRECTORY
+
+     Must be set to:  Website/frontend
+
+     This is a monorepo. Vercel defaults to the repository root, finds no
+     package.json there, and the build fails immediately.
+
+
+  2. RENDER CLIENT_ORIGIN
+
+     Must be your exact Vercel URL with NO trailing slash.
+
+         https://your-app.vercel.app     RIGHT
+         https://your-app.vercel.app/    WRONG — CORS will fail
+
+     The backend compares this string character by character against the
+     browser's Origin header. One extra slash and every API call is rejected.
+
+
+  Get these two right and you have eliminated roughly 90 percent of the
+  problems people hit when deploying this project.
+
+===============================================================================

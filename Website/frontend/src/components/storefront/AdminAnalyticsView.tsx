@@ -1,19 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { OrderAnalytics } from "@shared/types";
+import type { OrderAnalytics, OrderStats } from "@shared/types";
 import { apiFetch } from "@/lib/api";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AdminTabs } from "./AdminTabs";
 import { formatINR } from "@/lib/format";
-
-interface Stats {
-  totalOrders: number;
-  revenue: number;
-  statusCounts: Record<string, number>;
-}
 
 export function AdminAnalyticsView() {
   return (
@@ -24,7 +18,7 @@ export function AdminAnalyticsView() {
 }
 
 function Analytics() {
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<OrderStats | null>(null);
   const [data, setData] = useState<OrderAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +28,7 @@ function Analytics() {
     setError(null);
     try {
       const [s, a] = await Promise.all([
-        apiFetch<Stats>("/api/orders/admin/stats"),
+        apiFetch<OrderStats>("/api/orders/admin/stats"),
         apiFetch<OrderAnalytics>("/api/orders/admin/analytics"),
       ]);
       setStats(s);

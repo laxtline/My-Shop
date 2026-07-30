@@ -7,6 +7,7 @@ import { addToCart, selectIsInCart } from "@/store/cartSlice";
 import { useAuthAction } from "@/components/auth/AuthActionProvider";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { useToast } from "@/components/ui/Toast";
 import { WishlistButton } from "./WishlistButton";
 import { formatINR, unitPriceForQty, nextBulkTier } from "@/lib/format";
 
@@ -14,6 +15,7 @@ import { formatINR, unitPriceForQty, nextBulkTier } from "@/lib/format";
 export function ProductActions({ product, supportPhone }: { product: Product; supportPhone: string }) {
   const dispatch = useAppDispatch();
   const { requireAuth } = useAuthAction();
+  const { toast } = useToast();
   const inCart = useAppSelector(selectIsInCart(product.id));
   const mutating = useAppSelector((s) => s.cart.mutating === product.id);
   const [qty, setQty] = useState(1);
@@ -27,10 +29,14 @@ export function ProductActions({ product, supportPhone }: { product: Product; su
   const clamp = (n: number) => Math.min(max, Math.max(1, n));
 
   const add = () =>
-    requireAuth(
-      () => dispatch(addToCart({ productId: product.id, quantity: qty })),
-      "Sign in to add items to your cart"
-    );
+    requireAuth(async () => {
+      const result = await dispatch(addToCart({ productId: product.id, quantity: qty }));
+      if (addToCart.fulfilled.match(result)) {
+        toast(`${qty} × ${product.title} added to cart`);
+      } else {
+        toast("Could not add to cart. Please try again.", "error");
+      }
+    }, "Sign in to add items to your cart");
 
   const waText = encodeURIComponent(
     `Hi! I'd like to order:\n• ${product.title}\n• Qty: ${qty}\n• SKU: ${product.sku}\n• Approx: ${formatINR(lineTotal)}`

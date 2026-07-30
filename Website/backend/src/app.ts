@@ -4,7 +4,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import { UPLOADS_DIR } from "./controllers/uploadController.js";
-import { env } from "./config/env.js";
+import { allowedOrigins } from "./config/env.js";
+import { ApiError } from "./utils/ApiError.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 import brandRoutes from "./routes/brand.routes.js";
 import authRoutes from "./routes/auth.routes.js";
@@ -30,7 +31,19 @@ export function createApp() {
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
   app.use(
     cors({
-      origin: env.clientOrigin,
+      // Reflect the request origin when it is on the allow-list. Server-to-server
+      // and same-origin callers send no Origin header at all — allow those too,
+      // since CORS is a browser-side control and has nothing to protect there.
+      origin(origin, callback) {
+        if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ""))) {
+          return callback(null, true);
+        }
+        // Throw an ApiError, not a bare Error: a disallowed origin is a client
+        // problem (403), and a bare Error reaches the handler as a 500 — which
+        // logs every blocked request as a server crash and tells the caller the
+        // server is broken when it is working exactly as configured.
+        callback(new ApiError(403, "Origin not allowed by CORS."));
+      },
       credentials: true,
     })
   );
@@ -58,9 +71,14 @@ export function createApp() {
     })
   );
 
-  // Stricter limiter for auth endpoints (login/logout) — a common abuse target.
-  // 20 attempts / 15 min / IP, layered on top of the global limiter above.
-  const authLimiter = rateLimit({
+  // Stricter limiter for the credential-exchange endpoint only — a common abuse
+  // target. 20 attempts / 15 min / IP, layered on top of the global limiter.
+  //
+  // Scoped to POST /api/auth/google deliberately. Mounting it on the whole
+  // /api/auth router also throttled GET /api/auth/me, which every page load
+  // calls to restore the session: ~20 page views burned the quota and the next
+  // real sign-in was rejected with "Too many login attempts".
+  const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 20,
     standardHeaders: true,
@@ -73,7 +91,8 @@ export function createApp() {
   });
 
   app.use("/api/brand", brandRoutes);
-  app.use("/api/auth", authLimiter, authRoutes);
+  app.use("/api/auth/google", loginLimiter);
+  app.use("/api/auth", authRoutes);
   app.use("/api/categories", categoryRoutes);
   app.use("/api/products", productRoutes);
   app.use("/api/cart", cartRoutes);

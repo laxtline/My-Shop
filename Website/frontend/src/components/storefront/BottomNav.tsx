@@ -33,6 +33,8 @@ export function BottomNav() {
             <Link
               key={it.href}
               href={it.href}
+              aria-current={active ? "page" : undefined}
+              aria-label={count > 0 ? `${it.label} (${count})` : undefined}
               className={cn(
                 "relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium",
                 active ? "text-brand" : "text-slate-500"
@@ -43,7 +45,11 @@ export function BottomNav() {
               </span>
               {it.label}
               {count > 0 && (
-                <span className="absolute right-[22%] top-1 grid h-4 min-w-[1rem] place-items-center rounded-full bg-brand px-1 text-[10px] font-bold text-white">
+                // Count is carried by the link's aria-label above.
+                <span
+                  aria-hidden
+                  className="absolute right-[22%] top-1 grid h-4 min-w-[1rem] place-items-center rounded-full bg-brand px-1 text-[10px] font-bold text-white"
+                >
                   {count > 99 ? "99+" : count}
                 </span>
               )}
