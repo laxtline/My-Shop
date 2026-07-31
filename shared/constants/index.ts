@@ -15,7 +15,7 @@ export const ADMIN_EMAIL = "suryakant321pradhan@gmail.com";
 export const SUPPORT_EMAIL = "ramachandratraders2000@gmail.com";
 
 /** Fixed support phone used for "Call to Order" / "WhatsApp Order" features. */
-export const SUPPORT_PHONE = "7848003467";
+export const SUPPORT_PHONE = "9938649590";
 
 /** Canonical role rule. The ONLY place this decision is made. */
 export function roleForEmail(email: string): Role {
