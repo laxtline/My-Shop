@@ -112,6 +112,9 @@ export const selectCartCount = (state: RootState): number =>
 
 /** True if the given product id is in the cart. */
 export const selectIsInCart = (productId: string) => (state: RootState): boolean =>
-  items(state).some((it) =>
-    typeof it.product === "string" ? it.product === productId : it.product.id === productId
-  );
+  items(state).some((it) => {
+    // `product` is null when the referenced product no longer exists — populate
+    // resolves a dangling reference to null, and `typeof null` is "object".
+    if (!it.product) return false;
+    return typeof it.product === "string" ? it.product === productId : it.product.id === productId;
+  });

@@ -20,7 +20,7 @@ export function WishlistView() {
   }, [status, dispatch]);
 
   const products = (wishlist?.items ?? []).filter(
-    (it): it is Product => typeof it !== "string"
+    (it): it is Product => !!it && typeof it !== "string"
   );
 
   if (status === "loading" && !wishlist) {

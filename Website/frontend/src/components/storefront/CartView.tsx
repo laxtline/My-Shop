@@ -20,10 +20,11 @@ export function CartView() {
     if (status === "idle") dispatch(fetchCart());
   }, [status, dispatch]);
 
-  // Only populated products can be priced/rendered.
+  // Only populated products can be priced/rendered. `product` is null when the
+  // referenced product was deleted, so check for that too — `typeof null` is "object".
   const lines = (cart?.items ?? [])
     .map((it) => ({ product: it.product, quantity: it.quantity }))
-    .filter((l): l is { product: Product; quantity: number } => typeof l.product !== "string");
+    .filter((l): l is { product: Product; quantity: number } => !!l.product && typeof l.product !== "string");
 
   if (status === "loading" && !cart) {
     return (

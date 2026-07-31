@@ -113,7 +113,7 @@ export function CheckoutView() {
 
   const lines = (cart?.items ?? [])
     .map((it) => ({ product: it.product, quantity: it.quantity }))
-    .filter((l): l is { product: Product; quantity: number } => typeof l.product !== "string");
+    .filter((l): l is { product: Product; quantity: number } => !!l.product && typeof l.product !== "string");
 
   if (status === "loading" && !cart) {
     return (

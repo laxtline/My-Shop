@@ -80,7 +80,8 @@ export default wishlistSlice.reducer;
 // ---- selectors ----
 function wishlistIds(state: RootState): string[] {
   const items = state.wishlist.wishlist?.items ?? [];
-  return items.map((it) => (typeof it === "string" ? it : it.id));
+  // A deleted product populates to null, so drop those before reading `.id`.
+  return items.filter(Boolean).map((it) => (typeof it === "string" ? it : it.id));
 }
 
 export const selectWishlistCount = (state: RootState): number => wishlistIds(state).length;
