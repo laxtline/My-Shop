@@ -39,12 +39,19 @@ export default async function HomePage() {
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link href="/products">
-            <Button size="lg" className="bg-white text-brand-700 hover:bg-brand-50">
+            {/* bg-white is kept so the dark-mode remap in globals.css still turns
+                this button's surface dark. The label was inheriting the variant's
+                white text, which is invisible on the light surface — hence dark
+                text in light mode, white text once the surface goes dark. */}
+            <Button
+              size="lg"
+              className="bg-white !text-slate-900 hover:bg-brand-50 dark:!text-white"
+            >
               Shop all products
             </Button>
           </Link>
           <Link href="/products?sort=discount">
-            <Button size="lg" variant="outline" className="border-white/50 bg-transparent text-white hover:bg-white/10">
+            <Button size="lg" variant="outline" className="border-white/60 bg-transparent !text-white hover:bg-white/10">
               View today&apos;s deals
             </Button>
           </Link>
