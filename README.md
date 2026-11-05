@@ -18,6 +18,20 @@ A full-stack e-commerce platform for building materials and home interiors — t
 
 ---
 
+## About the Developer
+
+**Suryakanta Pradhan** — MCA Graduate (2024) | Python + Full Stack Developer
+
+**Skills:** Python, HTML, CSS, JavaScript, React/Next.js, Node.js/Express, MongoDB, React Native/Expo, TypeScript, Redux Toolkit, Tailwind CSS, Google OAuth, Razorpay, REST APIs, Git/GitHub, basic AI/LLM integration
+
+**No:** ML, Java, C++
+
+This project was built as a **placement portfolio piece** during my MCA. It represents 4+ months of iterative development — from initial schema design through deployment — with every feature implemented, tested, and debugged hands-on. The codebase reflects real-world decision-making: schema trade-offs, state management choices, error handling patterns, and deployment constraints I encountered and resolved myself.
+
+> **Honest disclaimer:** AI tools (Claude, Copilot) were used for scaffolding, boilerplate, and debugging assistance — but every architectural decision, bug fix, and feature integration was mine. The commit history shows the actual evolution: failed approaches, refactors, and incremental improvements over time.
+
+---
+
 ## Architecture
 
 ```text
@@ -283,6 +297,41 @@ cd AndroidApp
 npx eas build --platform android --profile production
 # Generates .aab for Play Store
 ```
+
+---
+
+## Production Troubleshooting
+
+### ⚠️ Cross-Origin Cookie Issues (Vercel + Render)
+
+If **logout doesn't work** or **session isn't persisted** on the deployed version:
+
+| Issue | Cause | Fix |
+| ----- | ----- | --- |
+| Logout doesn't clear session | Cookie not matching for `clearCookie` | Backend sets `SameSite: None; Secure` — ensure `FRONTEND_URL` in backend `.env` matches Vercel URL exactly (no trailing slash) |
+| "Not authenticated" on refresh | Cookie not sent cross-origin | Backend CORS `origin` must **reflect request origin** (not `*`), and `credentials: true` — already configured in `app.ts` |
+| Google OAuth redirect fails | Mismatched redirect URI | In Google Cloud Console, add **both** Vercel URL (`/api/auth/google/callback`) and Render URL to Authorized Redirect URIs |
+
+**Environment variables that must match exactly:**
+```bash
+# Backend (Render)
+FRONTEND_URL=https://your-app.vercel.app        # No trailing slash!
+MONGODB_URI=mongodb+srv://...
+JWT_SECRET=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+
+# Frontend (Vercel)
+NEXT_PUBLIC_API_URL=https://your-api.onrender.com
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=...                # Same as backend
+```
+
+**Debug steps:**
+
+1. Open DevTools → Application → Cookies → check `rt_token` exists after login
+2. Check `SameSite: None` and `Secure` are set on the cookie
+3. Network tab → `/api/auth/logout` → should return 200 and clear cookie
+4. Backend logs → verify `clearCookie` is called with `sameSite: "none", secure: true`
 
 ---
 

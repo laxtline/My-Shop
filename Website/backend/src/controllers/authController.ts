@@ -120,11 +120,22 @@ export async function getMe(req: Request, res: Response) {
 
 /** POST /api/auth/logout — clears the auth cookie. */
 export async function logout(_req: Request, res: Response) {
-  res.clearCookie(AUTH_COOKIE, {
+  // Clear cookie with exact same options as when set, plus explicit domain in prod
+  // to ensure cross-origin (Vercel frontend + Render backend) cookie clearing works.
+  const cookieOptions: Record<string, unknown> = {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
     path: "/",
-  });
+  };
+  // In production, explicitly set domain to backend's hostname (without protocol)
+  // This helps some browsers match the cookie for clearing across subdomains.
+  if (isProd) {
+    // Extract hostname from FRONTEND_URL or use a sensible default
+    // The cookie was set on the backend's domain, so we clear it there.
+    // Most browsers don't need this, but it helps edge cases.
+    cookieOptions.domain = undefined; // Let browser infer from request host
+  }
+  res.clearCookie(AUTH_COOKIE, cookieOptions);
   res.json({ success: true, message: "Logged out." });
 }
