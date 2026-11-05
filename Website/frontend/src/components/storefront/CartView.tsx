@@ -1,32 +1,33 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect } from "react";
-import type { Product } from "@shared/types";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { fetchCart, updateCartItem, removeFromCart } from "@/store/cartSlice";
-import { Button } from "@/components/ui/Button";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { Spinner } from "@/components/ui/Spinner";
-import { formatINR, unitPriceForQty, primaryImage } from "@/lib/format";
+import Link from 'next/link';
+import { useEffect } from 'react';
+import type { Product } from '@shared/types';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { fetchCart, updateCartItem, removeFromCart } from '@/store/cartSlice';
+import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { Spinner } from '@/components/ui/Spinner';
+import { formatINR, unitPriceForQty, primaryImage } from '@/lib/format';
+import { QuantitySelector } from '@/components/ui/QuantitySelector';
 
-/** Interactive cart: quantity steppers, remove, live totals and WhatsApp checkout. */
+// Interactive cart: quantity steppers, remove, live totals and WhatsApp checkout.
 export function CartView() {
   const dispatch = useAppDispatch();
-  const { cart, status, mutating } = useAppSelector((s) => s.cart);
+  const { cart, status, mutating, error } = useAppSelector((s) => s.cart);
   const brand = useAppSelector((s) => s.brand.brand);
 
   useEffect(() => {
-    if (status === "idle") dispatch(fetchCart());
+    if (status === 'idle') dispatch(fetchCart());
   }, [status, dispatch]);
 
   // Only populated products can be priced/rendered. `product` is null when the
   // referenced product was deleted, so check for that too — `typeof null` is "object".
   const lines = (cart?.items ?? [])
     .map((it) => ({ product: it.product, quantity: it.quantity }))
-    .filter((l): l is { product: Product; quantity: number } => !!l.product && typeof l.product !== "string");
+    .filter((l): l is { product: Product; quantity: number } => !!l.product && typeof l.product !== 'string');
 
-  if (status === "loading" && !cart) {
+  if (status === 'loading' && !cart) {
     return (
       <div className="grid place-items-center py-24">
         <Spinner className="h-8 w-8" />
@@ -56,13 +57,14 @@ export function CartView() {
 
   const orderText = encodeURIComponent(
     `Hi! I'd like to place an order:\n\n` +
-      lines.map((l) => `• ${l.product.title} × ${l.quantity} — ${formatINR(unitPriceForQty(l.product, l.quantity) * l.quantity)}`).join("\n") +
+      lines.map((l) => `• ${l.product.title} × ${l.quantity} — ${formatINR(unitPriceForQty(l.product, l.quantity) * l.quantity)}`).join('\n') +
       `\n\nTotal: ${formatINR(subtotal)} (${totalUnits} items)`
   );
   const waLink = `https://wa.me/91${brand.supportPhone}?text=${orderText}`;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 lg:col-span-2">{error}</p>}
       <ul className="space-y-3">
         {lines.map(({ product, quantity }) => {
           const unit = unitPriceForQty(product, quantity);
@@ -96,31 +98,14 @@ export function CartView() {
                 </p>
 
                 <div className="mt-auto flex items-center gap-3 pt-2">
-                  <div className="inline-flex items-center rounded-lg border border-slate-300">
-                    <button
-                      onClick={() => dispatch(updateCartItem({ productId: product.id, quantity: quantity - 1 }))}
-                      disabled={busy}
-                      className="grid h-9 w-9 place-items-center text-lg text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                      aria-label="Decrease quantity"
-                    >
-                      −
-                    </button>
-                    <span className="grid h-9 w-10 place-items-center border-x border-slate-300 text-sm font-semibold">
-                      {quantity}
-                    </span>
-                    <button
-                      onClick={() => dispatch(updateCartItem({ productId: product.id, quantity: Math.min(max, quantity + 1) }))}
-                      disabled={busy || quantity >= max}
-                      className="grid h-9 w-9 place-items-center text-lg text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                      aria-label="Increase quantity"
-                    >
-                      +
-                    </button>
-                  </div>
+                  <QuantitySelector value={quantity} max={product.stock} disabled={!!mutating}
+                    label={`Quantity for ${product.title}`}
+                    onChange={(next) => dispatch(updateCartItem({ productId: product.id, quantity: next }))} />
+                  {quantity > product.stock && <p role="alert" className="text-xs text-red-600">{product.stock ? `Only ${product.stock} available. Reduce quantity.` : 'Out of stock. Remove this item.'}</p>}
 
                   <button
                     onClick={() => dispatch(removeFromCart(product.id))}
-                    disabled={busy}
+                    disabled={!!mutating}
                     className="text-sm font-medium text-red-600 hover:underline disabled:opacity-40"
                   >
                     Remove

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
-import { AuthGate } from "@/components/AuthGate";
 import { AppShell } from "@/components/storefront/AppShell";
 import { SITE_URL, SITE_NAME, SITE_DESCRIPTION } from "@/lib/site";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
@@ -36,14 +35,19 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link
+          rel="preload"
+          href="/fonts/open-sans-latin-wght-normal.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
         {/* Set theme before paint to avoid a flash of the wrong mode. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="antialiased">
         <Providers>
-          <AuthGate>
-            <AppShell>{children}</AppShell>
-          </AuthGate>
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>

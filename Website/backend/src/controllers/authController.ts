@@ -1,11 +1,12 @@
-import type { Request, Response } from "express";
-import { OAuth2Client } from "google-auth-library";
-import { UserModel } from "../models/User.js";
-import { signToken, AUTH_COOKIE, AUTH_COOKIE_MAX_AGE } from "../utils/jwt.js";
-import { ApiError } from "../utils/ApiError.js";
-import { env, isProd } from "../config/env.js";
+import type { Request, Response } from 'express';
+import { OAuth2Client } from 'google-auth-library';
+import { UserModel } from '../models/User.js';
+import { signToken, AUTH_COOKIE, AUTH_COOKIE_MAX_AGE } from '../utils/jwt.js';
+import { ApiError } from '../utils/ApiError.js';
+import { env, isProd } from '../config/env.js';
 
 const googleClient = new OAuth2Client(env.googleClientId);
+// TODO: maybe move this to a separate file if we add more auth providers
 
 function setAuthCookie(res: Response, token: string): void {
   res.cookie(AUTH_COOKIE, token, {

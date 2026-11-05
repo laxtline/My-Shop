@@ -20,6 +20,10 @@ import reviewRoutes from "./routes/review.routes.js";
 import addressRoutes from "./routes/address.routes.js";
 import couponRoutes from "./routes/coupon.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
+import pushRoutes from "./routes/push.routes.js";
+import { adminEvents } from './services/realtime.js';
+import { requireAuth, requireAdmin } from './middleware/auth.js';
+import { asyncHandler } from './utils/asyncHandler.js';
 
 export function createApp() {
   const app = express();
@@ -91,6 +95,7 @@ export function createApp() {
   });
 
   app.use("/api/brand", brandRoutes);
+  app.get('/api/admin/events', requireAuth, requireAdmin, asyncHandler(adminEvents));
   app.use("/api/auth/google", loginLimiter);
   app.use("/api/auth", authRoutes);
   app.use("/api/categories", categoryRoutes);
@@ -103,6 +108,7 @@ export function createApp() {
   app.use("/api/reviews", reviewRoutes);
   app.use("/api/addresses", addressRoutes);
   app.use("/api/coupons", couponRoutes);
+  app.use("/api/push", pushRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

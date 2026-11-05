@@ -1,8 +1,8 @@
-import type { NextFunction, Request, Response } from "express";
-import { verifyToken, AUTH_COOKIE } from "../utils/jwt.js";
-import { UserModel } from "../models/User.js";
-import { ApiError } from "../utils/ApiError.js";
-import { asyncHandler } from "../utils/asyncHandler.js";
+import type { NextFunction, Request, Response } from 'express';
+import { verifyToken, AUTH_COOKIE } from '../utils/jwt.js';
+import { UserModel } from '../models/User.js';
+import { ApiError } from '../utils/ApiError.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 // Augment Express Request with the authenticated user.
 declare global {
@@ -19,7 +19,7 @@ function extractToken(req: Request): string | null {
   if (cookieToken) return cookieToken;
 
   const header = req.headers.authorization;
-  if (header?.startsWith("Bearer ")) return header.slice(7);
+  if (header?.startsWith('Bearer ')) return header.slice(7);
 
   return null;
 }

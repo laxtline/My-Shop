@@ -1,12 +1,15 @@
-import type { Request, Response } from "express";
-import type { FilterQuery } from "mongoose";
-import { ProductModel } from "../models/Product.js";
-import { CategoryModel } from "../models/Category.js";
-import { ApiError } from "../utils/ApiError.js";
-import { getPageParams, paginate } from "../utils/pagination.js";
-import { slugify } from "../utils/slugify.js";
+import type { Request, Response } from 'express';
+import { Types, type FilterQuery } from 'mongoose';
+import { ProductModel } from '../models/Product.js';
+import { CategoryModel } from '../models/Category.js';
+import { ApiError } from '../utils/ApiError.js';
+import { getPageParams, paginate } from '../utils/pagination.js';
+import { slugify } from '../utils/slugify.js';
+import { cursorFilter, cursorPage, type CursorSort } from '../utils/pagination.js';
+import { isImageKitUrl } from '@shared/images.js';
 
-const SORT_MAP: Record<string, Record<string, 1 | -1>> = {
+// TODO: move this to a shared constants file
+export const SORT_MAP = {
   newest: { createdAt: -1 },
   price_asc: { price: 1 },
   price_desc: { price: -1 },
@@ -14,7 +17,7 @@ const SORT_MAP: Record<string, Record<string, 1 | -1>> = {
   discount: { discount: -1 },
 };
 
-/** Build a Mongo filter from query params (shared by listing & search). */
+// Build Mongo filter from query params (shared by listing & search)
 export async function buildProductFilter(req: Request): Promise<FilterQuery<unknown>> {
   const filter: FilterQuery<unknown> = { isActive: true };
 
@@ -25,14 +28,14 @@ export async function buildProductFilter(req: Request): Promise<FilterQuery<unkn
     filter.category = cat ? cat._id : null;
   }
 
-  if (req.query.brand) filter.brand = new RegExp(`^${escapeRegex(String(req.query.brand))}$`, "i");
+  if (req.query.brand) filter.brand = String(req.query.brand).slice(0, 120);
 
   const min = Number(req.query.minPrice);
   const max = Number(req.query.maxPrice);
-  if (!Number.isNaN(min) || !Number.isNaN(max)) {
+  if (Number.isFinite(min) || Number.isFinite(max)) {
     filter.price = {};
-    if (!Number.isNaN(min)) (filter.price as Record<string, number>).$gte = min;
-    if (!Number.isNaN(max)) (filter.price as Record<string, number>).$lte = max;
+    if (Number.isFinite(min)) (filter.price as Record<string, number>).$gte = Math.max(0, min);
+    if (Number.isFinite(max)) (filter.price as Record<string, number>).$lte = Math.max(0, max);
   }
 
   const minRating = Number(req.query.minRating ?? req.query.rating);
@@ -53,50 +56,53 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/**
- * GET /api/products
- * Query: page, limit, category(slug), brand, minPrice, maxPrice, minRating,
- *        minDiscount, availability=in, sort=newest|price_asc|price_desc|rating|discount
- */
+// GET /api/products - query: page, limit, category, brand, minPrice, maxPrice, minRating, minDiscount, availability=in, sort
 export async function listProducts(req: Request, res: Response) {
+  return productListing(req, res, false);
+}
+
+export async function productListing(req: Request, res: Response, admin = false, search = false) {
   const { page, limit, skip } = getPageParams(req);
   const filter = await buildProductFilter(req);
-  const sort = SORT_MAP[String(req.query.sort)] ?? SORT_MAP.newest;
-
-  const [items, total] = await Promise.all([
-    ProductModel.find(filter).populate("category").sort(sort).skip(skip).limit(limit),
-    ProductModel.countDocuments(filter),
-  ]);
-
-  res.json({ success: true, data: paginate(items, total, page, limit) });
-}
-
-/**
- * GET /api/products/admin/all — admin only.
- * Lists ALL products (active + inactive) so the admin panel can manage them.
- * Query: page, limit, q (matches title/sku/brand).
- */
-export async function listAllProductsAdmin(req: Request, res: Response) {
-  const { page, limit, skip } = getPageParams(req);
-  const q = String(req.query.q ?? "").trim();
-
-  const filter: FilterQuery<unknown> = {};
-  if (q) {
-    const rx = new RegExp(escapeRegex(q), "i");
-    filter.$or = [{ title: rx }, { sku: rx }, { brand: rx }];
+  if (req.query.ids) {
+    const ids = String(req.query.ids).split(',');
+    if (ids.length > 200 || ids.some((id) => !Types.ObjectId.isValid(id))) throw new ApiError(400, 'Invalid product IDs.');
+    filter._id = { $in: ids };
   }
-
+  if (admin) {
+    delete filter.isActive;
+    if (req.query.status === 'active') filter.isActive = true;
+    if (req.query.status === 'inactive') filter.isActive = false;
+  }
+  const q = String(req.query.q ?? '').trim().slice(0, 200);
+  if (q) filter.$text = { $search: q };
+  const sorts: Record<string, CursorSort> = {
+    newest: { field: 'createdAt', direction: -1, kind: 'date' },
+    price_asc: { field: 'price', direction: 1, kind: 'number' },
+    price_desc: { field: 'price', direction: -1, kind: 'number' },
+    rating: { field: 'rating', direction: -1, kind: 'number' },
+    discount: { field: 'discount', direction: -1, kind: 'number' },
+  };
+  const sort = sorts[String(req.query.sort)] ?? sorts.newest;
+  const scope = { admin, filter, sort };
   const [items, total] = await Promise.all([
-    ProductModel.find(filter).populate("category").sort({ createdAt: -1 }).skip(skip).limit(limit),
+    ProductModel.find({ $and: [filter, cursorFilter(req, sort, scope)] }).populate('category', 'name slug')
+      .sort({ [sort.field]: sort.direction, _id: sort.direction }).skip(req.query.cursor ? 0 : skip).limit(limit + 1),
     ProductModel.countDocuments(filter),
   ]);
-
-  res.json({ success: true, data: paginate(items, total, page, limit) });
+  if (!admin) res.set('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
+  res.json({ success: true, data: { ...cursorPage(items, total, page, limit, sort, scope), ...(search ? { query: q } : {}) } });
 }
 
-/** GET /api/products/:slug — public. */
+// GET /api/products/admin/all - admin only. Lists ALL products (active + inactive)
+// query: page, limit, q (matches title/sku/brand)
+export async function listAllProductsAdmin(req: Request, res: Response) {
+  return productListing(req, res, true);
+}
+
+// GET /api/products/:slug - public
 export async function getProduct(req: Request, res: Response) {
-  const product = await ProductModel.findOne({ slug: req.params.slug }).populate("category");
+  const product = await ProductModel.findOne({ slug: req.params.slug, isActive: true }).populate("category");
   if (!product) throw new ApiError(404, "Product not found.");
   res.json({ success: true, data: product });
 }
@@ -107,13 +113,15 @@ const WRITABLE = [
   "gstRate", "weight",
 ] as const;
 
-/** POST /api/products — admin only. */
+// POST /api/products - admin only
 export async function createProduct(req: Request, res: Response) {
   const body = req.body ?? {};
   if (!body.title) throw new ApiError(400, "Product title is required.");
   if (body.price == null || body.mrp == null) throw new ApiError(400, "price and mrp are required.");
   if (!body.category) throw new ApiError(400, "category (id) is required.");
   if (!body.sku) throw new ApiError(400, "sku is required.");
+  if (!await CategoryModel.exists({ _id: body.category })) throw new ApiError(400, 'Category does not exist.');
+  validateImages(body.images ?? []);
 
   const slug = slugify(body.title);
   if (await ProductModel.exists({ slug })) {
@@ -124,12 +132,14 @@ export async function createProduct(req: Request, res: Response) {
   res.status(201).json({ success: true, data: product, message: "Product created." });
 }
 
-/** PUT /api/products/:id — admin only. */
+// PUT /api/products/:id - admin only
 export async function updateProduct(req: Request, res: Response) {
   const product = await ProductModel.findById(req.params.id);
   if (!product) throw new ApiError(404, "Product not found.");
 
   const updates = pick(req.body ?? {}, WRITABLE);
+  if (updates.category && !await CategoryModel.exists({ _id: updates.category })) throw new ApiError(400, 'Category does not exist.');
+  if (updates.images !== undefined) validateImages(updates.images, product.images);
   product.set(updates);
   if (typeof req.body?.title === "string" && req.body.title.trim()) {
     product.slug = slugify(req.body.title);
@@ -138,7 +148,14 @@ export async function updateProduct(req: Request, res: Response) {
   res.json({ success: true, data: product, message: "Product updated." });
 }
 
-/** DELETE /api/products/:id — admin only. */
+function validateImages(images: unknown, existing: string[] = []) {
+  if (!Array.isArray(images) || images.length > 20 || images.some((url) => typeof url !== 'string' ||
+    url.length > 2000 || !isImageKitUrl(url) && !existing.includes(url))) {
+    throw new ApiError(400, 'Provide up to 20 valid HTTPS ImageKit image URLs (ik.imagekit.io).');
+  }
+}
+
+// DELETE /api/products/:id - admin only
 export async function deleteProduct(req: Request, res: Response) {
   const deleted = await ProductModel.findByIdAndDelete(req.params.id);
   if (!deleted) throw new ApiError(404, "Product not found.");

@@ -1,6 +1,26 @@
+@import "./fonts.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    font-family: var(--font-open-sans);
+  }
+
+  button,
+  input,
+  optgroup,
+  select,
+  textarea,
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: inherit;
+  }
+}
 
 :root {
   --background: #f8fafc;

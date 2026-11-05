@@ -1,12 +1,19 @@
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Image, Linking, Pressable, StyleSheet, View } from "react-native";
+import { useState } from 'react';
+import { Text } from "@/components/ui/Typography";
 import { useRouter } from "expo-router";
-import { formatINR } from "@/lib/api";
+import { formatINR, STOREFRONT_URL } from "@/lib/api";
+import { QuantitySelector } from '@/components/ui/QuantitySelector';
+import { imageUrl } from '@shared/images';
+import { unitPriceForQty } from '@shared/pricing';
 import { useCart } from "@/lib/cart";
 import { colors, radius, spacing } from "@/lib/theme";
+import { Footer } from "@/components/ui/Footer";
 
 export default function CartScreen() {
   const router = useRouter();
-  const { lines, total, remove, clear } = useCart();
+  const { lines, total, remove, update } = useCart();
+  const [error, setError] = useState('');
 
   if (lines.length === 0) {
     return (
@@ -16,6 +23,7 @@ export default function CartScreen() {
         <Pressable style={styles.button} onPress={() => router.replace("/")}>
           <Text style={styles.buttonText}>Browse products</Text>
         </Pressable>
+        <Footer />
       </View>
     );
   }
@@ -25,11 +33,11 @@ export default function CartScreen() {
       <FlatList
         data={lines}
         keyExtractor={(l) => l.product.id}
-        contentContainerStyle={{ padding: spacing.md }}
+        contentContainerStyle={{ padding: spacing.md, paddingBottom: spacing.xl }}
         renderItem={({ item }) => (
           <View style={styles.row}>
             <Image
-              source={{ uri: item.product.images?.[0] ?? "https://via.placeholder.com/100" }}
+              source={{ uri: imageUrl(item.product.images?.[0] ?? '', 128, 128) }}
               style={styles.thumb}
             />
             <View style={{ flex: 1 }}>
@@ -37,8 +45,9 @@ export default function CartScreen() {
                 {item.product.title}
               </Text>
               <Text style={styles.meta}>
-                {formatINR(item.product.price)} × {item.quantity}
+                {formatINR(unitPriceForQty(item.product, item.quantity))} × {item.quantity}
               </Text>
+              <QuantitySelector value={item.quantity} max={item.product.stock} onChange={(quantity) => update(item.product.id, quantity)} />
             </View>
             <Pressable onPress={() => remove(item.product.id)}>
               <Text style={styles.remove}>Remove</Text>
@@ -54,16 +63,20 @@ export default function CartScreen() {
         </View>
         <Pressable
           style={styles.button}
-          onPress={() => {
-            // The website performs server-authoritative COD/Razorpay checkout.
-            // Wiring login + /api/orders here is the next step (see README).
-            clear();
-            router.replace("/");
+          onPress={async () => {
+            try {
+              const url = new URL('/checkout', STOREFRONT_URL);
+              url.searchParams.set('mobileCart', JSON.stringify(lines.map((line) => ({ productId: line.product.id, quantity: line.quantity }))));
+              await Linking.openURL(url.toString());
+            } catch { setError('Online checkout could not be opened. Please try again.'); }
           }}
         >
-          <Text style={styles.buttonText}>Checkout (demo)</Text>
+          <Text style={styles.buttonText}>Continue to secure checkout</Text>
         </Pressable>
+        <Text style={styles.meta}>Sign in on the website to review delivery, apply a coupon and place your order. Your cart stays here.</Text>
+        {!!error && <Text accessibilityRole="alert" style={{ color: colors.red }}>{error}</Text>}
       </View>
+      <Footer />
     </View>
   );
 }

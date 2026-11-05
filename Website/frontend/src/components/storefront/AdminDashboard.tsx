@@ -11,17 +11,24 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { OrderStatusBadge } from "./OrderStatusBadge";
 import { AdminTabs } from "./AdminTabs";
 import { formatINR } from "@/lib/format";
+import { useAdminLive } from '@/hooks/useAdminLive';
+import { useCursorPages } from '@/hooks/useCursorPages';
+import { CursorPager } from '@/components/ui/CursorPager';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 
-// Allowed forward transitions — mirrors the server's STATUS_FLOW.
+// mirrors server STATUS_FLOW — keep in sync
 const NEXT_STATUS: Record<OrderStatus, OrderStatus[]> = {
   PLACED: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["SHIPPED", "CANCELLED"],
-  SHIPPED: ["DELIVERED"],
+  CONFIRMED: ["PACKED", "CANCELLED"],
+  PACKED: ["SHIPPED", "CANCELLED"],
+  SHIPPED: ["OUT_FOR_DELIVERY"],
+  OUT_FOR_DELIVERY: ["DELIVERED"],
   DELIVERED: [],
   CANCELLED: [],
 };
 
-const FILTERS: (OrderStatus | "ALL")[] = ["ALL", "PLACED", "CONFIRMED", "SHIPPED", "DELIVERED", "CANCELLED"];
+const FILTERS: (OrderStatus | "ALL")[] = ["ALL", "PLACED", "CONFIRMED", "PACKED", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"];
+// TODO: derive FILTERS from NEXT_STATUS keys to avoid duplication
 
 export function AdminDashboard() {
   return (
@@ -35,27 +42,34 @@ function Dashboard() {
   const [stats, setStats] = useState<OrderStats | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [filter, setFilter] = useState<OrderStatus | "ALL">("ALL");
+  const paging = useCursorPages(filter);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
-      const query = filter === "ALL" ? "" : `?status=${filter}`;
+      const query = `?${new URLSearchParams({ ...(filter !== 'ALL' ? { status: filter } : {}), limit: '15', cursor: paging.cursor })}`;
       const [s, list] = await Promise.all([
         apiFetch<OrderStats>("/api/orders/admin/stats"),
         apiFetch<Paginated<Order>>(`/api/orders/admin/all${query}`),
       ]);
+      // console.log('[AdminDashboard] loaded:', list.items.length, 'orders');
       setStats(s);
       setOrders(list.items);
+      setNextCursor(list.nextCursor ?? null);
+      setTotal(list.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, paging.cursor]);
+  const connected = useAdminLive(() => load(true));
 
   useEffect(() => {
     load();
@@ -81,6 +95,7 @@ function Dashboard() {
       <h1 className="text-2xl font-bold text-slate-900">Admin</h1>
       <AdminTabs />
       <h2 className="text-lg font-semibold text-slate-700">Orders</h2>
+      <LiveStatus connected={connected} />
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -161,6 +176,7 @@ function Dashboard() {
           })}
         </div>
       )}
+      <CursorPager page={paging.page} total={total} nextCursor={nextCursor} onNext={paging.next} onPrevious={paging.previous} disabled={loading} />
     </div>
   );
 }

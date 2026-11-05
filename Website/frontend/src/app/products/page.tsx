@@ -18,8 +18,7 @@ export async function generateMetadata({
   const sp = await searchParams;
   const catSlug = Array.isArray(sp.category) ? sp.category[0] : sp.category;
   if (catSlug) {
-    const categories = await serverFetchOrNull<Category[]>("/api/categories");
-    const cat = categories?.find((c) => c.slug === catSlug);
+    const cat = await serverFetchOrNull<Category>(`/api/categories/${encodeURIComponent(catSlug)}`);
     if (cat) {
       return {
         title: cat.name,
@@ -35,7 +34,7 @@ export async function generateMetadata({
   };
 }
 
-const FILTER_KEYS = ["category", "sort", "minPrice", "maxPrice", "minRating", "availability", "page"] as const;
+const FILTER_KEYS = ["category", "sort", "minPrice", "maxPrice", "minRating", "availability", "page", "cursor"] as const;
 
 function first(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
@@ -57,12 +56,12 @@ export default async function ProductsPage({
   const query = buildQuery({ ...params, limit: 12 });
 
   const [categories, data] = await Promise.all([
-    serverFetchOrNull<Category[]>("/api/categories"),
+    params.category ? serverFetchOrNull<Category>(`/api/categories/${encodeURIComponent(params.category)}`) : Promise.resolve(null),
     serverFetchOrNull<Paginated<Product>>(`/api/products${query}`),
   ]);
 
   const items = data?.items ?? [];
-  const activeCat = categories?.find((c) => c.slug === params.category);
+  const activeCat = categories;
   const title = activeCat ? activeCat.name : "All products";
 
   return (
@@ -76,7 +75,7 @@ export default async function ProductsPage({
         )}
       </div>
 
-      <ProductFilters categories={categories ?? []} current={params} />
+      <ProductFilters categories={activeCat ? [activeCat] : []} current={params} />
 
       {items.length === 0 ? (
         <EmptyState
@@ -92,7 +91,7 @@ export default async function ProductsPage({
             ))}
           </div>
           {data && (
-            <Pagination page={data.page} totalPages={data.totalPages} params={params} />
+            <Pagination page={data.page} totalPages={data.totalPages} params={params} nextCursor={data.nextCursor} />
           )}
         </>
       )}

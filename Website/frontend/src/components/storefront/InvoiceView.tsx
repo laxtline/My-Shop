@@ -8,8 +8,28 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatINR } from "@/lib/format";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export function InvoiceView({ id }: { id: string }) {
+  return (
+    <ProtectedRoute fallback={<SignInPrompt />}>
+      <Invoice id={id} />
+    </ProtectedRoute>
+  );
+}
+
+function SignInPrompt() {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">
+      <p className="text-slate-600">Please sign in to view this invoice.</p>
+      <Link href="/" className="mt-3 inline-block font-medium text-brand hover:underline">
+        Go home
+      </Link>
+    </div>
+  );
+}
+
+function Invoice({ id }: { id: string }) {
   const dispatch = useAppDispatch();
   const { current, currentStatus } = useAppSelector((s) => s.orders);
   const brand = useAppSelector((s) => s.brand.brand);

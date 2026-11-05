@@ -1,10 +1,10 @@
-import dotenv from "dotenv";
+import dotenv from 'dotenv';
 
 dotenv.config();
 
 function required(name: string): string {
   const value = process.env[name];
-  if (!value || value.trim() === "") {
+  if (!value || value.trim() === '') {
     throw new Error(
       `Missing required environment variable: ${name}. Copy .env.example to .env and fill it in.`
     );
@@ -14,35 +14,37 @@ function required(name: string): string {
 
 function optional(name: string, fallback: string): string {
   const value = process.env[name];
-  return value && value.trim() !== "" ? value : fallback;
+  return value && value.trim() !== '' ? value : fallback;
 }
 
 export const env = {
-  nodeEnv: optional("NODE_ENV", "development"),
-  port: Number(optional("PORT", "5000")),
-  clientOrigin: optional("CLIENT_ORIGIN", "http://localhost:3000"),
-  mongoUri: required("MONGODB_URI"),
-  jwtSecret: required("JWT_SECRET"),
-  jwtExpiresIn: optional("JWT_EXPIRES_IN", "7d"),
-  googleClientId: required("GOOGLE_CLIENT_ID"),
+  nodeEnv: optional('NODE_ENV', 'development'),
+  port: Number(optional('PORT', '5000')),
+  clientOrigin: optional('CLIENT_ORIGIN', 'http://localhost:3000'),
+  mongoUri: required('MONGODB_URI'),
+  jwtSecret: required('JWT_SECRET'),
+  jwtExpiresIn: optional('JWT_EXPIRES_IN', '7d'),
+  googleClientId: required('GOOGLE_CLIENT_ID'),
   // Online payments (optional). When both are set, Razorpay checkout is enabled.
-  razorpayKeyId: optional("RAZORPAY_KEY_ID", ""),
-  razorpayKeySecret: optional("RAZORPAY_KEY_SECRET", ""),
+  razorpayKeyId: optional('RAZORPAY_KEY_ID', ''),
+  razorpayKeySecret: optional('RAZORPAY_KEY_SECRET', ''),
   // Email notifications (optional). Uses the Resend HTTP API when configured.
-  resendApiKey: optional("RESEND_API_KEY", ""),
-  emailFrom: optional("EMAIL_FROM", ""),
+  resendApiKey: optional('RESEND_API_KEY', ''),
+  emailFrom: optional('EMAIL_FROM', ''),
+  // Push notifications (optional). Uses Expo Push Service when configured.
+  expoPushEnabled: optional('EXPO_PUSH_ENABLED', 'false') === 'true',
+  // Encryption for refund data (required for refunds)
+  refundEncryptionKey: optional('REFUND_ENCRYPTION_KEY', ''),
 };
 
-export const isProd = env.nodeEnv === "production";
+export const isProd = env.nodeEnv === 'production';
 
-/**
- * Allowed browser origins, parsed from CLIENT_ORIGIN as a comma-separated list.
- * A single value keeps working unchanged; multiple values matter on deploy,
- * where the production domain and Vercel preview domains differ.
- */
+// Allowed browser origins, parsed from CLIENT_ORIGIN as a comma-separated list.
+// A single value keeps working unchanged; multiple values matter on deploy,
+// where the production domain and Vercel preview domains differ.
 export const allowedOrigins = env.clientOrigin
-  .split(",")
-  .map((o) => o.trim().replace(/\/$/, ""))
+  .split(',')
+  .map((o) => o.trim().replace(/\/$/, ''))
   .filter(Boolean);
 
 /** Razorpay is active only when both credentials are configured. */

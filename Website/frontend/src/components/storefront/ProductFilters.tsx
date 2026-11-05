@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Category } from "@shared/types";
 import { Button } from "@/components/ui/Button";
+import { CataloguePicker } from '@/components/ui/CataloguePicker';
 
 type Filters = Record<string, string>;
 
@@ -34,6 +35,7 @@ export function ProductFilters({
   const apply = (changes: Filters) => {
     const next = { ...current, ...changes };
     delete next.page;
+    delete next.cursor;
     const sp = new URLSearchParams();
     for (const [k, v] of Object.entries(next)) {
       if (v != null && String(v).trim() !== "") sp.set(k, String(v));
@@ -63,21 +65,9 @@ export function ProductFilters({
           </select>
         </label>
 
-        <label className="text-sm font-medium text-slate-600">
-          Category
-          <select
-            value={current.category ?? ""}
-            onChange={(e) => apply({ category: e.target.value })}
-            className="ml-2 h-10 rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-brand"
-          >
-            <option value="">All categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.slug}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="w-full max-w-sm"><p className="mb-1 text-sm font-medium text-slate-600">Category</p>
+          <CataloguePicker valueKey="slug" value={current.category ? [current.category] : []} onChange={(values) => apply({ category: values[0] ?? '' })} />
+        </div>
 
         <label className="text-sm font-medium text-slate-600">
           Rating

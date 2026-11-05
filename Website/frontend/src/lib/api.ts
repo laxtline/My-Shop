@@ -20,6 +20,7 @@ export async function apiFetch<T>(
   // `credentials: "include"` (which would send the request without the auth
   // cookie and fail every logged-in call with a 401).
   const res = await fetch(`${API_URL}${path}`, {
+    cache: 'no-store',
     ...options,
     credentials: "include",
     headers: {

@@ -1,127 +1,319 @@
-# Ramachandra Traders — Full-Stack E-commerce Platform
+# Ramachandra Traders
 
-E-commerce platform for **Tiles · Paints · Electrical · Home Interiors**.
-_"Everything for Your Dream Home — From Cement to Color, All in One Place."_
+A full-stack e-commerce platform for building materials and home interiors — tiles, paints, electrical supplies, and home décor. Built as a monorepo with shared TypeScript types across web and mobile.
 
-A production-style, end-to-end **TypeScript monorepo**: Next.js 15 storefront,
-Express + MongoDB REST API, full admin dashboard, and a React Native (Expo)
-mobile app — all sharing one type-safe API contract.
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)](https://nextjs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-green.svg)](https://www.mongodb.com/atlas)
+[![Expo](https://img.shields.io/badge/Expo-51-000020.svg)](https://expo.dev/)
 
-> 🔗 **Live demo:** _add your deployed URL here_ · **Admin demo:** see [docs/DEPLOY_GUIDE.txt](docs/DEPLOY_GUIDE.txt)
+---
+
+## Overview
+
+**Ramachandra Traders** is a production-ready e-commerce platform featuring a Next.js storefront, Express REST API, and a React Native mobile app (Expo). The project demonstrates modern full-stack development practices including type-safe API contracts, JWT authentication with Google OAuth, server-side rendering, and a shared type system that prevents drift between frontend, backend, and mobile clients.
+
+> **Built for:** Portfolio demonstration — showcases end-to-end full-stack capabilities with clean architecture, type safety, and real-world features (payments, auth, admin dashboard, push notifications).
+
+---
+
+## Architecture
+
+```text
+ramachandra-traders/
+├── Website/
+│   ├── backend/          # Express + TypeScript REST API
+│   │   ├── src/
+│   │   │   ├── controllers/   # Request handlers
+│   │   │   ├── middleware/    # Auth, validation, error handling
+│   │   │   ├── models/        # Mongoose schemas
+│   │   │   ├── routes/        # API route definitions
+│   │   │   ├── seed/          # Database seeding
+│   │   │   ├── utils/         # Helpers, pagination, validation
+│   │   │   └── validation/    # Zod schemas
+│   │   └── package.json
+│   │
+│   └── frontend/         # Next.js 15 App Router
+│       ├── src/
+│       │   ├── app/           # Pages & layouts (App Router)
+│       │   ├── components/    # React components (storefront + admin)
+│       │   ├── hooks/         # Custom React hooks
+│       │   ├── lib/           # API client, utilities
+│       │   └── store/         # Redux Toolkit slices
+│       └── package.json
+│
+├── AndroidApp/           # React Native + Expo (runs on iOS/Android)
+│   ├── app/              # Expo Router file-based routing
+│   ├── components/       # UI components
+│   ├── src/
+│   │   ├── lib/          # API client, utilities
+│   │   └── store/        # Redux Toolkit slices
+│   └── package.json
+│
+└── shared/               # Shared TypeScript types & constants (@shared/*)
+    ├── types/            # API contracts, DTOs, enums
+    ├── constants/        # Admin email, support contact, default brand
+    └── social.ts         # Social media links (single source of truth)
+```
+
+**Key architectural decision:** The `shared/` package is consumed via TypeScript path aliases (`@shared/*`) by all three apps. This ensures the API contract is a single source of truth — frontend, backend, and mobile cannot drift apart.
 
 ---
 
 ## Features
 
-### Storefront
+### Storefront (Customer-facing)
 
-- Google Sign-In (OAuth) with JWT sessions in httpOnly cookies
-- Product catalog with filters (category / brand / price / rating / discount), 5 sort modes, pagination
-- Product detail: image gallery, bulk-pricing tiers, GST, stock badges, reviews & ratings
-- Cart, wishlist, and search — per-user, server-persisted, optimistic UI updates
-- Checkout: **Cash on Delivery + Razorpay online payment** (server-verified signature), autocomplete hints on address fields, phone/pincode pattern validation
-- Coupons (percent/flat, min-order, expiry) — discount always recomputed server-side
-- Saved delivery addresses with default auto-fill
-- Order history with status-tracking timeline, cancellation with restock, printable **tax invoice**
-- Email notifications on order placed / status change (Resend API)
-- Toast notifications for cart actions, wishlist, checkout feedback
-- "You may also like" + "Recently viewed" recommendation rails
-- Dark mode 🌙, mobile-first responsive layout, skeleton loaders, error boundaries, ARIA labels on interactive elements
-- SEO: dynamic sitemap.xml, robots.txt, Open Graph, per-product JSON-LD structured data
+- **Authentication** — Google OAuth 2.0 with JWT in httpOnly cookies; session bootstrap via `fetchMe`
+- **Product Catalog** — Category filtering, sorting, pagination, search with debounce
+- **Product Detail** — Image gallery, bulk pricing tiers, GST breakdown, customer reviews
+- **Cart & Wishlist** — Server-persisted per user; optimistic UI updates
+- **Checkout** — Cash on Delivery + Razorpay online payments (test mode)
+- **Coupons** — Percent/flat discounts validated server-side
+- **Addresses** — Multiple saved addresses with default selection
+- **Orders** — Full history with timeline tracking (PLACED → DELIVERED), cancellation with automatic restock
+- **Guest Checkout** — Place order without account; login prompt appears on submit
+- **Real-time Notifications** — Email via Resend (optional), push via Expo (mobile)
+- **SEO** — Dynamic sitemap.xml, robots.txt, Open Graph, JSON-LD product schema
+- **Dark Mode** — System preference + manual toggle, persisted in localStorage
 
-### Admin dashboard
+### Admin Dashboard
 
-- Orders: view all, guarded status state machine (PLACED → … → DELIVERED)
-- Products & categories: full CRUD with multi-image upload
-- Coupons: create / list / deactivate / delete
-- Analytics: headline stats, 14-day revenue chart, top-5 selling products
+- **Order Management** — State machine workflow with transition validation
+- **Product & Category CRUD** — Multi-image upload (ImageKit), bulk pricing, inventory
+- **Coupon Management** — Create/edit/disable with usage tracking
+- **Analytics** — Revenue chart (Recharts), top-selling products, 30-day window
 
-### Engineering
+### Mobile App (Expo / React Native)
 
-- Server-authoritative pricing & stock (clients can never set prices), atomic stock decrement, immutable order line-item snapshots
-- Role-based access control (ADMIN vs USER) enforced in middleware
-- Security: Helmet, credentialed CORS allow-list (comma-separated for multiple domains; blocked origins get a 403, not a misleading 500), two-tier rate limiting (auth endpoints separated from session checks), request-size limits, input validation on every write endpoint, MongoDB duplicate-key error handling, fail-fast env validation
-- Dynamic branding (store name, logo, theme color) loaded from the database — re-skin with zero code changes
-- Complete REST API documentation: Postman collection with 41 endpoints (`docs/Ramachandra_Traders_API.postman_collection.json`)
-- End-to-end smoke test: boots the real server against in-memory MongoDB and asserts the full catalog → cart → checkout → admin flow (`npm run test:smoke`)
+- Feature parity with web storefront
+- Expo Router for file-based navigation
+- Push notifications via Expo Push Service
+- Brand config loaded from API (splash screen, theme color, logo)
+- Track order screen with visual timeline
 
-## Tech stack
+---
 
-| Layer    | Tech |
-| -------- | ---- |
-| Frontend | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS, Redux Toolkit |
-| Backend  | Node.js, Express 4, TypeScript, Mongoose 8 (MongoDB), JWT, Google OAuth |
-| Payments | Razorpay (test mode; optional via env flag) |
-| Email    | Resend HTTP API (optional via env flag) |
-| Mobile   | React Native (Expo, expo-router) — Android & iOS from one codebase |
-| Testing  | End-to-end API smoke test with mongodb-memory-server |
-| Deploy   | Vercel (frontend) + Render (backend, `render.yaml`) + MongoDB Atlas |
+## Tech Stack
 
-## Monorepo layout
+| Layer | Technology |
+| ----- | ---------- |
+| **Frontend** | Next.js 15 (App Router), React 19, TypeScript 5, Tailwind CSS, Redux Toolkit |
+| **Backend** | Node.js 20, Express 5, TypeScript, Mongoose 8, JWT (jsonwebtoken), Google OAuth |
+| **Database** | MongoDB (Atlas), Mongoose ODM |
+| **Payments** | Razorpay (test mode) |
+| **Email** | Resend HTTP API |
+| **Images** | ImageKit.io (CDN + transformations) |
+| **Mobile** | React Native, Expo 51, expo-router, Expo Push Notifications |
+| **Testing** | mongodb-memory-server (smoke tests) |
+| **Deployment** | Vercel (frontend), Render (backend), MongoDB Atlas |
 
-| Folder        | What it is |
-| ------------- | ---------- |
-| `Website/backend`  | Express + MongoDB REST API (auth, catalog, cart, orders, payments, admin) |
-| `Website/frontend` | Next.js 15 storefront + admin dashboard |
-| `AndroidApp/` | React Native (Expo) app — home, product detail, cart (also runs on iOS) |
-| `iOSApp/`     | Points at the same Expo project (Expo is cross-platform) |
-| `shared/`     | Shared TypeScript types, API contracts, constants (`@shared/*`) — single source of truth |
-| `docs/`       | Setup, deploy, and project guides |
+---
 
-Code is **not** mixed between apps; the only shared code is `/shared`, consumed
-via the `@shared/*` TypeScript path alias — so the client and server can never
-drift apart on the API contract.
+## Getting Started
 
-## Quick start
+### Prerequisites
+- Node.js 20+
+- MongoDB (local or [MongoDB Atlas](https://www.mongodb.com/atlas) free tier)
+- Google Cloud Console project for OAuth credentials
+- [ImageKit.io](https://imagekit.io/) account (optional, for image uploads)
+- [Razorpay](https://razorpay.com/) test keys (optional, for online payments)
+- [Resend](https://resend.com/) API key (optional, for emails)
 
-Prerequisites: Node.js 20+, a MongoDB connection string (local or free
-[Atlas](https://www.mongodb.com/atlas)), and a Google OAuth Client ID.
-
+### Backend Setup
 ```bash
-# Backend (Terminal 1)
 cd Website/backend
-cp .env.example .env          # fill MONGODB_URI, JWT_SECRET, GOOGLE_CLIENT_ID
-npm install
-npm run seed                  # loads branding + 72 demo products
-npm run dev                   # http://localhost:5000
 
-# Frontend (Terminal 2)
-cd Website/frontend
-cp .env.local.example .env.local
+# Copy environment template and fill in values
+cp .env.example .env
+
+# Required variables:
+# MONGODB_URI=mongodb+srv://...
+# JWT_SECRET=<64-char random string>
+# GOOGLE_CLIENT_ID=<from Google Cloud Console>
+# GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
+# FRONTEND_URL=http://localhost:3000
+
 npm install
-npm run dev                   # http://localhost:3000
+npm run seed        # Seeds brand config, categories, demo products
+npm run dev         # Starts on http://localhost:5000
 ```
 
-Open <http://localhost:3000> → sign in with Google → browse the store.
+### Frontend Setup
+```bash
+cd Website/frontend
 
-Optional feature flags (backend `.env`) — the app works fully without them:
+cp .env.local.example .env.local
 
-- `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` → enables "Pay Online" at checkout
-- `RESEND_API_KEY` / `EMAIL_FROM` → enables order emails (otherwise logged to console)
+# Required:
+# NEXT_PUBLIC_API_URL=http://localhost:5000
+# NEXT_PUBLIC_GOOGLE_CLIENT_ID=<same as backend>
+
+npm install
+npm run dev         # Starts on http://localhost:3000
+```
+
+### Mobile App Setup
+```bash
+cd AndroidApp
+npm install
+npx expo start      # Scan QR with Expo Go, or press 'a' for Android emulator
+```
+
+> **Note:** The mobile app uses the same backend API. Ensure the backend is running and accessible (use your machine's LAN IP for physical device testing).
+
+---
+
+## Environment Variables
+
+### Backend (`Website/backend/.env`)
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MONGODB_URI` | Yes | MongoDB connection string |
+| `JWT_SECRET` | Yes | 64+ char random string for JWT signing |
+| `GOOGLE_CLIENT_ID` | Yes | Google OAuth Client ID |
+| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth Client Secret |
+| `FRONTEND_URL` | Yes | Frontend origin (e.g., `http://localhost:3000`) |
+| `RAZORPAY_KEY_ID` | No | Enables "Pay Online" at checkout |
+| `RAZORPAY_KEY_SECRET` | No | Razorpay secret key |
+| `RESEND_API_KEY` | No | Enables transactional emails |
+| `EMAIL_FROM` | No | Sender email (verified in Resend) |
+| `IMAGEKIT_PUBLIC_KEY` | No | ImageKit public key |
+| `IMAGEKIT_PRIVATE_KEY` | No | ImageKit private key |
+| `IMAGEKIT_URL_ENDPOINT` | No | ImageKit URL endpoint |
+
+### Frontend (`Website/frontend/.env.local`)
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_API_URL` | Yes | Backend API URL |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Yes | Google OAuth Client ID |
+
+### Mobile (`AndroidApp/.env` optional)
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `EXPO_PUBLIC_API_URL` | Yes | Backend API URL (use LAN IP for device testing) |
+
+---
+
+## Available Scripts
+
+### Backend
+```bash
+npm run dev           # Development with tsx watch
+npm run build         # Compile to dist/
+npm run start         # Run compiled build
+npm run typecheck     # TypeScript type check
+npm run lint          # ESLint
+npm run seed          # Seed database
+npm run test:smoke    # Full e2e flow against in-memory MongoDB
+```
+
+### Frontend
+```bash
+npm run dev           # Next.js dev server
+npm run build         # Production build
+npm run start         # Run production build
+npm run typecheck     # TypeScript type check
+npm run lint          # ESLint + Prettier
+```
+
+### Mobile
+```bash
+npx expo start        # Dev server
+npx expo start --android   # Android emulator
+npx expo start --ios       # iOS simulator
+npx eas build --platform android --profile production  # Production build
+```
+
+---
+
+## Project Highlights
+
+### Type-Safe API Contracts
+All API request/response types live in `shared/types/`. Both backend controllers and frontend/mobile API clients import from `@shared/types`, eliminating runtime contract mismatches.
+
+### Shared Constants
+Admin email, support contact, default branding, and social links are defined once in `shared/constants/` and `shared/social.ts`, consumed by all apps.
+
+### Auth Flow
+- Google OAuth → backend exchanges code for tokens → sets httpOnly cookie
+- Frontend calls `/api/auth/me` on load to bootstrap session (Redux)
+- Mobile uses same cookie-based flow via `fetch` with credentials
+
+### Order State Machine
+
+```text
+PLACED → CONFIRMED → PACKED → SHIPPED → OUT_FOR_DELIVERY → DELIVERED
+                    ↳ CANCELLED (restocks inventory)
+```
+
+Transitions validated server-side; invalid transitions return 400.
+
+### Responsive Design
+Mobile-first Tailwind CSS with custom breakpoints. Admin dashboard is desktop-optimized; storefront works seamlessly from 320px to 1440px+.
+
+---
+
+## Deployment
+
+### Backend (Render)
+1. Connect GitHub repo to Render
+2. Create **Web Service** from `Website/backend`
+3. Build command: `npm install && npm run build`
+4. Start command: `npm run start`
+5. Add all environment variables from `.env.example`
+6. Deploy — Render provides `https://your-app.onrender.com`
+
+### Frontend (Vercel)
+1. Import repo in Vercel
+2. Root directory: `Website/frontend`
+3. Add `NEXT_PUBLIC_API_URL` (Render backend URL) and `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
+4. Deploy — Vercel provides `https://your-app.vercel.app`
+
+### Database (MongoDB Atlas)
+1. Create free M0 cluster
+2. Whitelist Render IP (or 0.0.0.0/0 for dev)
+3. Create database user
+4. Use connection string in `MONGODB_URI`
+
+### Mobile (EAS Build)
+```bash
+cd AndroidApp
+npx eas build --platform android --profile production
+# Generates .aab for Play Store
+```
+
+---
 
 ## Testing
 
 ```bash
+# Backend smoke test (no external deps)
 cd Website/backend
-npm run typecheck
-npm run test:smoke   # full e2e flow against in-memory MongoDB — no .env or internet needed
+npm run test:smoke
 
-cd ../frontend
-npm run typecheck
-npm run build
+# Frontend type check + build
+cd Website/frontend
+npm run typecheck && npm run build
 ```
 
-## Deployment
+The smoke test spins up a real Express server against `mongodb-memory-server`, runs through the complete flow (catalog → cart → checkout → admin), and tears down. No MongoDB, no env vars needed.
 
-Free-tier deploy: MongoDB Atlas + Render (backend) + Vercel (frontend).
-Follow [docs/DEPLOY_GUIDE.txt](docs/DEPLOY_GUIDE.txt) top to bottom — includes
-every environment variable and a post-deploy browser checklist.
-`render.yaml` in the repo root is the Render blueprint.
-
-## Screenshots
-
-_Add screenshots here after deploying: home, product page, cart, checkout, admin dashboard, analytics._
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT License — feel free to use for learning, reference, or your own projects.
+
+---
+
+## Contact
+
+**Suryakanta Pradhan** — MCA Graduate (Full Stack Developer)
+
+- GitHub: [@your-username](https://github.com/your-username)
+- LinkedIn: [linkedin.com/in/your-profile](https://linkedin.com/in/your-profile)
+- Email: suryakant321pradhan@gmail.com
+
+> This project was built as a portfolio piece for placement interviews. It demonstrates end-to-end full-stack development with modern tooling, clean architecture, and production-ready patterns.

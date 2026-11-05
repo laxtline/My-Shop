@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toast";
 import { WishlistButton } from "./WishlistButton";
 import { formatINR, unitPriceForQty, nextBulkTier } from "@/lib/format";
+import { QuantitySelector } from '@/components/ui/QuantitySelector';
 
 /** Quantity picker + add-to-cart + wishlist + WhatsApp order for the detail page. */
 export function ProductActions({ product, supportPhone }: { product: Product; supportPhone: string }) {
@@ -25,8 +26,6 @@ export function ProductActions({ product, supportPhone }: { product: Product; su
   const unit = unitPriceForQty(product, qty);
   const upcoming = nextBulkTier(product.bulkPricing, qty);
   const lineTotal = unit * qty;
-
-  const clamp = (n: number) => Math.min(max, Math.max(1, n));
 
   const add = () =>
     requireAuth(async () => {
@@ -80,31 +79,7 @@ export function ProductActions({ product, supportPhone }: { product: Product; su
       ) : (
         <>
           <div className="flex items-center gap-4">
-            <div className="inline-flex items-center rounded-xl border border-slate-300">
-              <button
-                onClick={() => setQty((q) => clamp(q - 1))}
-                className="grid h-11 w-11 place-items-center text-xl text-slate-600 hover:bg-slate-50 focus-ring rounded-l-xl disabled:opacity-40"
-                disabled={qty <= 1}
-                aria-label="Decrease quantity"
-              >
-                −
-              </button>
-              <input
-                value={qty}
-                onChange={(e) => setQty(clamp(Number(e.target.value) || 1))}
-                inputMode="numeric"
-                className="h-11 w-14 border-x border-slate-300 text-center text-sm font-semibold outline-none"
-                aria-label="Quantity"
-              />
-              <button
-                onClick={() => setQty((q) => clamp(q + 1))}
-                className="grid h-11 w-11 place-items-center text-xl text-slate-600 hover:bg-slate-50 focus-ring rounded-r-xl disabled:opacity-40"
-                disabled={qty >= max}
-                aria-label="Increase quantity"
-              >
-                +
-              </button>
-            </div>
+            <QuantitySelector value={qty} max={product.stock} onChange={setQty} />
             <span className="text-sm text-slate-500">
               {product.stock} in stock · Total <strong className="text-slate-800">{formatINR(lineTotal)}</strong>
             </span>

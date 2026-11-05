@@ -1,61 +1,22 @@
-import Link from "next/link";
-import { cn } from "@/lib/cn";
+"use client";
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
-/** Query-string preserving pager for catalog listings. */
-export function Pagination({
-  page,
-  totalPages,
-  params,
-  basePath = "/products",
-}: {
-  page: number;
-  totalPages: number;
-  params: Record<string, string>;
-  basePath?: string;
+/** Cursor links avoid database offsets as the catalogue grows. */
+export function Pagination({ page, totalPages, params, basePath = '/products', nextCursor }: {
+  page: number; totalPages: number; params: Record<string, string>; basePath?: string; nextCursor?: string | null;
 }) {
-  if (totalPages <= 1) return null;
-
-  const hrefFor = (p: number) => {
-    const sp = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (k !== "page" && v != null && String(v).trim() !== "") sp.set(k, String(v));
-    }
-    if (p > 1) sp.set("page", String(p));
-    const qs = sp.toString();
-    return qs ? `${basePath}?${qs}` : basePath;
+  const router = useRouter();
+  const href = (cursor: string | null, nextPage: number) => {
+    const query = new URLSearchParams(params);
+    query.delete('cursor'); query.delete('page');
+    if (cursor) { query.set('cursor', cursor); query.set('page', String(nextPage)); }
+    return `${basePath}${query.size ? `?${query}` : ''}`;
   };
-
-  // Compact window of pages around the current one.
-  const pages: number[] = [];
-  const start = Math.max(1, page - 2);
-  const end = Math.min(totalPages, start + 4);
-  for (let p = start; p <= end; p++) pages.push(p);
-
-  return (
-    <nav className="mt-8 flex items-center justify-center gap-1" aria-label="Pagination">
-      {page > 1 && (
-        <Link href={hrefFor(page - 1)} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
-          ← Prev
-        </Link>
-      )}
-      {pages.map((p) => (
-        <Link
-          key={p}
-          href={hrefFor(p)}
-          aria-current={p === page ? "page" : undefined}
-          className={cn(
-            "grid h-10 min-w-[2.5rem] place-items-center rounded-lg px-2 text-sm font-medium",
-            p === page ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100"
-          )}
-        >
-          {p}
-        </Link>
-      ))}
-      {page < totalPages && (
-        <Link href={hrefFor(page + 1)} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">
-          Next →
-        </Link>
-      )}
-    </nav>
-  );
+  if (!params.cursor && !nextCursor && totalPages <= 1) return null;
+  return <nav aria-label="Pagination" className="mt-6 flex justify-center gap-4 text-sm font-semibold text-brand">
+    {params.cursor && <><button type="button" onClick={() => router.back()} className="rounded-lg border border-slate-200 px-3 py-2">Previous</button>
+      <Link href={href(null, 1)} className="px-3 py-2">First page</Link></>}
+    {nextCursor && <Link prefetch={false} href={href(nextCursor, page + 1)} className="rounded-lg border border-slate-200 px-3 py-2">Next →</Link>}
+  </nav>;
 }

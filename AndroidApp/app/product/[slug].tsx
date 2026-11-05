@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
@@ -13,6 +12,11 @@ import type { Product } from "@shared/types";
 import { apiFetch, formatINR } from "@/lib/api";
 import { useCart } from "@/lib/cart";
 import { colors, radius, spacing } from "@/lib/theme";
+import { Text } from "@/components/ui/Typography";
+import { QuantitySelector } from '@/components/ui/QuantitySelector';
+import { imageUrl } from '@shared/images';
+import { unitPriceForQty } from '@shared/pricing';
+import { Footer } from "@/components/ui/Footer";
 
 export default function ProductScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -21,6 +25,7 @@ export default function ProductScreen() {
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
     apiFetch<Product>(`/api/products/${slug}`)
@@ -52,14 +57,14 @@ export default function ProductScreen() {
       <Stack.Screen options={{ title: product.title }} />
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.xl }}>
         <Image
-          source={{ uri: product.images?.[0] ?? "https://via.placeholder.com/600" }}
+          source={{ uri: imageUrl(product.images?.[0] ?? '', 960, 960) }}
           style={styles.image}
         />
         <View style={{ padding: spacing.lg }}>
           {!!product.brand && <Text style={styles.brand}>{product.brand}</Text>}
           <Text style={styles.title}>{product.title}</Text>
           <View style={styles.priceRow}>
-            <Text style={styles.price}>{formatINR(product.price)}</Text>
+            <Text style={styles.price}>{formatINR(unitPriceForQty(product, quantity))}</Text>
             {product.mrp > product.price && <Text style={styles.mrp}>{formatINR(product.mrp)}</Text>}
           </View>
           <Text style={styles.rating}>
@@ -67,18 +72,21 @@ export default function ProductScreen() {
           </Text>
 
           {!!product.description && <Text style={styles.desc}>{product.description}</Text>}
+          {!outOfStock && <><QuantitySelector value={quantity} max={product.stock} onChange={setQuantity} />
+            <Text>Total: {formatINR(unitPriceForQty(product, quantity) * quantity)}</Text></>}
 
           <Pressable
             style={[styles.button, outOfStock && styles.buttonDisabled]}
             disabled={outOfStock}
             onPress={() => {
-              add(product, 1);
+              add(product, quantity);
               router.push("/cart");
             }}
           >
             <Text style={styles.buttonText}>{outOfStock ? "Out of stock" : "Add to cart"}</Text>
           </Pressable>
         </View>
+        <Footer />
       </ScrollView>
     </>
   );

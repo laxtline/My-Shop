@@ -4,6 +4,7 @@ import { serverFetchOrNull, buildQuery } from "@/lib/server-api";
 import { ProductCard } from "@/components/storefront/ProductCard";
 import { SearchBar } from "@/components/storefront/SearchBar";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Pagination } from '@/components/storefront/Pagination';
 
 export const metadata: Metadata = {
   title: "Search",
@@ -20,6 +21,7 @@ interface SearchResponse {
   limit: number;
   total: number;
   totalPages: number;
+  nextCursor?: string | null;
 }
 
 export default async function SearchPage({
@@ -29,9 +31,11 @@ export default async function SearchPage({
 }) {
   const sp = await searchParams;
   const q = (Array.isArray(sp.q) ? sp.q[0] : sp.q)?.trim() ?? "";
+  const cursor = typeof sp.cursor === 'string' ? sp.cursor : '';
+  const page = typeof sp.page === 'string' ? sp.page : '1';
 
   const data = q
-    ? await serverFetchOrNull<SearchResponse>(`/api/search${buildQuery({ q, limit: 24 })}`)
+    ? await serverFetchOrNull<SearchResponse>(`/api/search${buildQuery({ q, limit: 24, cursor, page })}`, { revalidate: 0 })
     : null;
   const items = data?.items ?? [];
 
@@ -60,6 +64,7 @@ export default async function SearchPage({
               <ProductCard key={p.id} product={p} />
             ))}
           </div>
+          {data && <Pagination page={data.page} totalPages={data.totalPages} params={{ q, cursor, page }} basePath="/search" nextCursor={data.nextCursor} />}
         </>
       )}
     </div>

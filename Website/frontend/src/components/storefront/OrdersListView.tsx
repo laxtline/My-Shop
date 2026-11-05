@@ -9,8 +9,28 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
 import { OrderStatusBadge } from "./OrderStatusBadge";
 import { formatINR } from "@/lib/format";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export function OrdersListView() {
+  return (
+    <ProtectedRoute fallback={<SignInPrompt />}>
+      <Orders />
+    </ProtectedRoute>
+  );
+}
+
+function SignInPrompt() {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">
+      <p className="text-slate-600">Please sign in to view your orders.</p>
+      <Link href="/" className="mt-3 inline-block font-medium text-brand hover:underline">
+        Go home
+      </Link>
+    </div>
+  );
+}
+
+function Orders() {
   const dispatch = useAppDispatch();
   const { list, listStatus } = useAppSelector((s) => s.orders);
 

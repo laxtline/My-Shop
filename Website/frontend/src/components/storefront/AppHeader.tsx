@@ -110,6 +110,7 @@ export function AppHeader() {
       <div className="border-t border-slate-100">
         <div className="no-scrollbar mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 py-2">
           <CatLink href="/products">All</CatLink>
+          <CatLink href="/categories">Browse categories</CatLink>
           {categories.map((c) => (
             <CatLink key={c.id} href={`/products?category=${c.slug}`}>
               {c.name}

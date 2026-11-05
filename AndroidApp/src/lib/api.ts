@@ -1,13 +1,13 @@
-import Constants from "expo-constants";
-import type { ApiResponse } from "@shared/types";
+import Constants from 'expo-constants';
+import type { ApiResponse } from '@shared/types';
 
-/**
- * API base URL. Reads app.json -> expo.extra.apiUrl. When testing on a physical
- * device, replace localhost with your computer's LAN IP (e.g. http://192.168.1.5:5000)
- * because "localhost" on the phone points at the phone itself.
- */
+// API base URL. Reads app.json -> expo.extra.apiUrl. When testing on a physical
+// device, replace localhost with your computer's LAN IP (e.g. http://192.168.1.5:5000)
+// because "localhost" on the phone points at the phone itself.
 export const API_URL =
-  (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ?? "http://localhost:5000";
+  (Constants.expoConfig?.extra as { apiUrl?: string } | undefined)?.apiUrl ?? 'http://localhost:5000';
+
+export const STOREFRONT_URL = (Constants.expoConfig?.extra as { storefrontUrl?: string } | undefined)?.storefrontUrl ?? '';
 
 export class ApiError extends Error {
   status: number;
@@ -17,10 +17,10 @@ export class ApiError extends Error {
   }
 }
 
-/** Thin fetch wrapper: sends/receives JSON and unwraps the { success, data } envelope. */
+// Thin fetch wrapper: sends/receives JSON and unwraps the { success, data } envelope.
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers ?? {}) },
+    headers: { 'Content-Type': 'application/json', ...(options.headers ?? {}) },
     ...options,
   });
 
@@ -37,7 +37,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return body.data as T;
 }
 
-/** Format a number as Indian Rupees (shared with the website's convention). */
+// Format a number as Indian Rupees (shared with the website's convention).
 export function formatINR(amount: number): string {
-  return `₹${Math.round(amount).toLocaleString("en-IN")}`;
+  return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }

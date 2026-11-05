@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useAppSelector } from "@/store/hooks";
+import { SocialLinks } from './SocialLinks';
 
 /** Site footer with brand blurb, category links and support contact. */
 export function SiteFooter() {
@@ -20,6 +21,7 @@ export function SiteFooter() {
             <span className="text-lg font-bold text-slate-900">{brand.appName}</span>
           </div>
           <p className="mt-3 text-sm text-slate-500">{brand.tagline}</p>
+          <SocialLinks />
         </div>
 
         <div>
@@ -30,7 +32,8 @@ export function SiteFooter() {
                 All products
               </Link>
             </li>
-            {categories.map((c) => (
+            <li><Link href="/categories" className="hover:text-brand">All categories</Link></li>
+            {categories.slice(0, 8).map((c) => (
               <li key={c.id}>
                 <Link href={`/products?category=${c.slug}`} className="hover:text-brand">
                   {c.name}
@@ -60,13 +63,13 @@ export function SiteFooter() {
           <h4 className="text-sm font-semibold text-slate-800">Need help?</h4>
           <ul className="mt-3 space-y-2 text-sm text-slate-500">
             <li>
-              <a href={`tel:${brand.supportPhone}`} className="hover:text-brand">
-                📞 {brand.supportPhone}
+              <a href="tel:6370419708" className="hover:text-brand">
+                📞 6370419708
               </a>
             </li>
             <li>
-              <a href={waLink} target="_blank" rel="noopener noreferrer" className="hover:text-brand">
-                💬 Order on WhatsApp
+              <a href="https://api.whatsapp.com/send/?phone=916370419708&text&type=phone_number&app_absent=0" target="_blank" rel="noopener noreferrer" className="hover:text-brand">
+                💬 WhatsApp
               </a>
             </li>
             <li>

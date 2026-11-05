@@ -25,7 +25,31 @@ interface SeedProduct {
   bulkPricing?: { minQty: number; pricePerUnit: number }[];
 }
 
-const img = (slug: string, n: number) => `https://picsum.photos/seed/${slug}-${n}/700/700`;
+// Category-relevant placeholder images from picsum with fixed seeds per category
+const CATEGORY_IMAGES = {
+  Tiles: [
+    "https://picsum.photos/seed/tiles-floor-1/700/700",
+    "https://picsum.photos/seed/tiles-wall-2/700/700",
+    "https://picsum.photos/seed/tiles-pattern-3/700/700",
+  ],
+  Paints: [
+    "https://picsum.photos/seed/paint-can-1/700/700",
+    "https://picsum.photos/seed/paint-brush-2/700/700",
+    "https://picsum.photos/seed/paint-color-3/700/700",
+  ],
+  Electrical: [
+    "https://picsum.photos/seed/electrical-switch-1/700/700",
+    "https://picsum.photos/seed/electrical-wire-2/700/700",
+    "https://picsum.photos/seed/electrical-light-3/700/700",
+  ],
+  "Home Interiors": [
+    "https://picsum.photos/seed/interior-furniture-1/700/700",
+    "https://picsum.photos/seed/interior-decor-2/700/700",
+    "https://picsum.photos/seed/interior-room-3/700/700",
+  ],
+};
+
+const img = (category: string, index: number) => CATEGORY_IMAGES[category as keyof typeof CATEGORY_IMAGES]?.[index] ?? `https://picsum.photos/seed/${category}-${index}/700/700`;
 
 const CATEGORIES = [
   { name: "Tiles", image: "https://picsum.photos/seed/cat-tiles/600/400", order: 1 },
@@ -155,7 +179,7 @@ async function seed() {
         slug,
         sku: buildSku(meta.name, i),
         category: category._id,
-        images: [img(slug, 1), img(slug, 2), img(slug, 3)],
+        images: [img(meta.name, 1), img(meta.name, 2), img(meta.name, 3)],
         isActive: true,
       });
       totalProducts++;

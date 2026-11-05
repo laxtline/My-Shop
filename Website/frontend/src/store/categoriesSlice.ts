@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import type { Category } from "@shared/types";
+import type { Category, Paginated } from "@shared/types";
 import { apiFetch } from "@/lib/api";
 
 interface CategoriesState {
@@ -10,7 +10,7 @@ interface CategoriesState {
 const initialState: CategoriesState = { items: [], status: "idle" };
 
 export const fetchCategories = createAsyncThunk("categories/fetch", async () => {
-  return apiFetch<Category[]>("/api/categories");
+  return (await apiFetch<Paginated<Category>>("/api/categories?limit=12&sort=order")).items;
 });
 
 const categoriesSlice = createSlice({

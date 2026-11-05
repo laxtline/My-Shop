@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Product } from "@shared/types";
 import { primaryImage } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { imageUrl } from '@shared/images';
 
 /** Main image with selectable thumbnails for the product detail page. */
 export function ProductGallery({ product }: { product: Product }) {
@@ -15,7 +16,8 @@ export function ProductGallery({ product }: { product: Product }) {
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={images[active]}
+          src={imageUrl(images[active], 960, 960)}
+          decoding="async"
           alt={product.title}
           className="aspect-square w-full object-cover"
         />
@@ -33,7 +35,7 @@ export function ProductGallery({ product }: { product: Product }) {
               )}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt="" className="h-full w-full object-cover" />
+              <img src={imageUrl(src, 128, 128)} loading="lazy" decoding="async" alt="" className="h-full w-full object-cover" />
             </button>
           ))}
         </div>

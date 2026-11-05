@@ -23,7 +23,8 @@
     },
     "plugins": ["expo-router"],
     "extra": {
-      "apiUrl": "http://localhost:5000"
+      "apiUrl": "http://localhost:5000",
+      "storefrontUrl": "http://localhost:3000"
     }
   }
 }

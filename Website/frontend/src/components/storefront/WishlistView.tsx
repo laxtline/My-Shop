@@ -9,9 +9,29 @@ import { ProductCard } from "./ProductCard";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 /** Grid of saved products, hydrated from the wishlist slice. */
 export function WishlistView() {
+  return (
+    <ProtectedRoute fallback={<SignInPrompt />}>
+      <Wishlist />
+    </ProtectedRoute>
+  );
+}
+
+function SignInPrompt() {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">
+      <p className="text-slate-600">Please sign in to view your wishlist.</p>
+      <Link href="/" className="mt-3 inline-block font-medium text-brand hover:underline">
+        Go home
+      </Link>
+    </div>
+  );
+}
+
+function Wishlist() {
   const dispatch = useAppDispatch();
   const { wishlist, status } = useAppSelector((s) => s.wishlist);
 

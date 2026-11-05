@@ -18,7 +18,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
 export default async function HomePage() {
   const [brand, categories, newest, deals] = await Promise.all([
     serverFetchOrNull<BrandConfig>("/api/brand"),
-    serverFetchOrNull<Category[]>("/api/categories"),
+    serverFetchOrNull<Paginated<Category>>("/api/categories?limit=8&sort=order"),
     serverFetchOrNull<Paginated<Product>>(`/api/products${buildQuery({ sort: "newest", limit: 8 })}`),
     serverFetchOrNull<Paginated<Product>>(`/api/products${buildQuery({ sort: "discount", limit: 8 })}`),
   ]);
@@ -66,11 +66,11 @@ export default async function HomePage() {
       )}
 
       {/* Categories */}
-      {categories && categories.length > 0 && (
+      {categories && categories.items.length > 0 && (
         <section>
-          <SectionHeading title="Shop by category" href="/products" />
+          <SectionHeading title="Shop by category" href="/categories" />
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {categories.map((c) => (
+            {categories.items.map((c) => (
               <Link
                 key={c.id}
                 href={`/products?category=${c.slug}`}

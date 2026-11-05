@@ -11,7 +11,13 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { AdminTabs } from "./AdminTabs";
 import { formatINR, primaryImage } from "@/lib/format";
-import { uploadImageFile } from "@/lib/upload";
+import { imageUrl, isImageKitUrl } from '@shared/images';
+import { CataloguePicker } from '@/components/ui/CataloguePicker';
+import { ImageKitPreview } from '@/components/ui/ImageKitPreview';
+import { CursorPager } from '@/components/ui/CursorPager';
+import { useCursorPages } from '@/hooks/useCursorPages';
+import { useAdminLive } from '@/hooks/useAdminLive';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 
 // ---------------------------------------------------------------------------
 // Form state — all inputs are strings; converted to the API payload on submit.
@@ -131,9 +137,12 @@ export function AdminProductsView() {
 
 function ProductsManager() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const paging = useCursorPages(`${search}:${status}:${categoryFilter}`);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,34 +154,31 @@ function ProductsManager() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
-      const [list, cats] = await Promise.all([
-        apiFetch<Paginated<Product>>(`/api/products/admin/all?page=${page}&limit=20`),
-        apiFetch<Category[]>("/api/categories"),
-      ]);
+      const list = await apiFetch<Paginated<Product>>(`/api/products/admin/all?${new URLSearchParams({ q: search, status, category: categoryFilter, limit: '20', cursor: paging.cursor })}`);
       setProducts(list.items);
-      setTotalPages(list.totalPages);
-      setCategories(cats);
+      setNextCursor(list.nextCursor ?? null); setTotal(list.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load products");
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [search, status, categoryFilter, paging.cursor]);
+
+  const connected = useAdminLive(() => load(true));
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(() => void load(), 250);
+    return () => clearTimeout(timer);
   }, [load]);
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ ...EMPTY_FORM, category: categories[0]?.id ?? "" });
+    setForm(EMPTY_FORM);
     setFormError(null);
     setFormOpen(true);
   };
@@ -191,6 +197,8 @@ function ProductsManager() {
     if (!form.category) return setFormError("Please choose a category.");
     if (!form.price || Number(form.price) <= 0) return setFormError("Price must be greater than 0.");
     if (!form.mrp || Number(form.mrp) <= 0) return setFormError("MRP must be greater than 0.");
+    const urls = form.imagesText.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (urls.length > 20 || urls.some((url) => !isImageKitUrl(url) && !editing?.images.includes(url))) return setFormError('Provide up to 20 valid HTTPS ImageKit image URLs.');
 
     setSaving(true);
     try {
@@ -232,27 +240,6 @@ function ProductsManager() {
   const set = <K extends keyof ProductForm>(key: K, value: ProductForm[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
 
-  // Upload picked image files and append their URLs to the images textarea.
-  const onUpload = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setUploading(true);
-    setUploadError(null);
-    try {
-      const urls: string[] = [];
-      for (const file of Array.from(files)) {
-        urls.push(await uploadImageFile(file));
-      }
-      setForm((f) => ({
-        ...f,
-        imagesText: [f.imagesText.trim(), ...urls].filter(Boolean).join("\n"),
-      }));
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const imageUrls = form.imagesText.split("\n").map((s) => s.trim()).filter(Boolean);
 
   return (
@@ -262,16 +249,17 @@ function ProductsManager() {
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-700">Products</h2>
-        <Button size="sm" onClick={openCreate} disabled={categories.length === 0}>
+        <LiveStatus connected={connected} />
+        <Button size="sm" onClick={openCreate}>
           + Add product
         </Button>
       </div>
 
-      {categories.length === 0 && !loading && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-700">
-          Create a category first — products need one.
-        </p>
-      )}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <input aria-label="Search product names" className={INPUT} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search product names…" />
+        <select aria-label="Product status" className={INPUT} value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Hidden</option></select>
+        <CataloguePicker valueKey="slug" value={categoryFilter ? [categoryFilter] : []} onChange={(ids) => setCategoryFilter(ids[0] ?? '')} />
+      </div>
       {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
 
       {loading ? (
@@ -300,6 +288,7 @@ function ProductsManager() {
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={primaryImage(p)}
+                        loading="lazy"
                         alt=""
                         className="h-11 w-11 shrink-0 rounded-lg object-cover"
                       />
@@ -348,24 +337,7 @@ function ProductsManager() {
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Previous
-          </Button>
-          <span className="text-sm text-slate-500">
-            Page {page} of {totalPages}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+      <CursorPager page={paging.page} total={total} nextCursor={nextCursor} onNext={paging.next} onPrevious={paging.previous} disabled={loading} />
 
       {/* Create / Edit modal */}
       <Modal
@@ -392,16 +364,9 @@ function ProductsManager() {
           <Field label="SKU *">
             <input className={INPUT} value={form.sku} onChange={(e) => set("sku", e.target.value)} />
           </Field>
-          <Field label="Category *">
-            <select className={INPUT} value={form.category} onChange={(e) => set("category", e.target.value)}>
-              <option value="">Select…</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </Field>
+          <div><p className="mb-1 text-xs font-medium text-slate-500">Category *</p>
+            <CataloguePicker value={form.category ? [form.category] : []} onChange={(ids) => set('category', ids[0] ?? '')} />
+          </div>
 
           <Field label="Brand">
             <input className={INPUT} value={form.brand} onChange={(e) => set("brand", e.target.value)} />
@@ -459,28 +424,14 @@ function ProductsManager() {
           </Field>
 
           <Field label="Images" className="sm:col-span-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                {uploading ? "Uploading…" : "⬆️ Upload images"}
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  disabled={uploading}
-                  onChange={(e) => onUpload(e.target.files)}
-                />
-              </label>
-              <span className="text-xs text-slate-400">or paste URLs below (one per line)</span>
-            </div>
-            {uploadError && <p className="mt-2 text-xs text-red-600">{uploadError}</p>}
+            <p className="text-xs text-slate-500">Paste ImageKit image URLs below, one per line (up to 20).</p>
 
             {imageUrls.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {imageUrls.map((url, i) => (
                   <div key={i} className="relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt="" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                    <ImageKitPreview url={url} existing={!!editing?.images.includes(url)} />
                     <button
                       type="button"
                       onClick={() =>

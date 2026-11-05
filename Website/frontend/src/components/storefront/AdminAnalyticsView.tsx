@@ -8,6 +8,8 @@ import { Spinner } from "@/components/ui/Spinner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AdminTabs } from "./AdminTabs";
 import { formatINR } from "@/lib/format";
+import { useAdminLive } from '@/hooks/useAdminLive';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 
 export function AdminAnalyticsView() {
   return (
@@ -23,8 +25,8 @@ function Analytics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const [s, a] = await Promise.all([
@@ -39,6 +41,7 @@ function Analytics() {
       setLoading(false);
     }
   }, []);
+  const connected = useAdminLive(() => load(true));
 
   useEffect(() => {
     load();
@@ -52,6 +55,7 @@ function Analytics() {
       <h1 className="text-2xl font-bold text-slate-900">Admin</h1>
       <AdminTabs />
       <h2 className="text-lg font-semibold text-slate-700">Analytics</h2>
+      <LiveStatus connected={connected} />
 
       {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
 
@@ -67,11 +71,14 @@ function Analytics() {
             <StatCard label="Revenue" value={stats ? formatINR(stats.revenue) : "—"} accent />
             <StatCard label="Delivered" value={stats ? String(stats.statusCounts.DELIVERED ?? 0) : "—"} />
             <StatCard label="Placed" value={stats ? String(stats.statusCounts.PLACED ?? 0) : "—"} />
+            <StatCard label="Units sold" value={stats ? String(stats.sales) : '—'} />
+            <StatCard label="Coupon uses" value={stats ? String(stats.couponUses) : '—'} />
+            <StatCard label="Discount given" value={stats ? formatINR(stats.discountGiven) : '—'} />
           </div>
 
           {/* Revenue — last 14 days */}
           <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-card">
-            <h3 className="text-sm font-semibold text-slate-800">Revenue · last 14 days</h3>
+            <h3 className="text-sm font-semibold text-slate-800">Revenue · last 30 days (IST)</h3>
             {!data || data.revenueByDay.length === 0 ? (
               <p className="mt-4 text-sm text-slate-500">No sales in this period yet.</p>
             ) : (
@@ -92,7 +99,7 @@ function Analytics() {
 
           {/* Top products */}
           <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-card">
-            <h3 className="text-sm font-semibold text-slate-800">Top-selling products</h3>
+            <h3 className="text-sm font-semibold text-slate-800">Top-selling products · last 30 days</h3>
             {!data || data.topProducts.length === 0 ? (
               <EmptyState icon="📊" title="No sales yet" message="Top products will appear here after orders." />
             ) : (
@@ -115,6 +122,12 @@ function Analytics() {
                 ))}
               </ul>
             )}
+          </section>
+          <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-card">
+            <h3 className="font-semibold">Coupon performance · last 30 days</h3>
+            <p className="mt-1 text-xs text-slate-500">Sales and revenue exclude cancelled orders. Revenue includes delivery and subtracts coupon discounts; product revenue is before order-level discounts. Coupon usage logs retain all redemptions, including later cancellations.</p>
+            {!data?.couponUsage.length ? <p className="mt-3 text-sm text-slate-500">No coupon redemptions in this period.</p> :
+              <ul className="mt-3 space-y-2 text-sm">{data.couponUsage.map((c) => <li key={c.code} className="flex justify-between gap-3"><span>{c.code} · {c.uses} uses</span><span>{formatINR(c.discount)} discount</span></li>)}</ul>}
           </section>
         </>
       )}

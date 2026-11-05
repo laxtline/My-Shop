@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { Category } from "@shared/types";
+import type { Category, Paginated } from "@shared/types";
 import { apiFetch } from "@/lib/api";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,13 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { AdminTabs } from "./AdminTabs";
 import { PLACEHOLDER_IMAGE } from "@/lib/format";
+import { imageUrl, isImageKitUrl } from '@shared/images';
+import { ImageKitPreview } from '@/components/ui/ImageKitPreview';
+import { CataloguePicker } from '@/components/ui/CataloguePicker';
+import { CursorPager } from '@/components/ui/CursorPager';
+import { useCursorPages } from '@/hooks/useCursorPages';
+import { useAdminLive } from '@/hooks/useAdminLive';
+import { LiveStatus } from '@/components/ui/LiveStatus';
 
 interface CategoryForm {
   name: string;
@@ -39,6 +46,10 @@ export function AdminCategoriesView() {
 
 function CategoriesManager() {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [search, setSearch] = useState('');
+  const paging = useCursorPages(search);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,20 +61,24 @@ function CategoriesManager() {
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
-      setCategories(await apiFetch<Category[]>("/api/categories"));
+      const data = await apiFetch<Paginated<Category>>(`/api/categories?${new URLSearchParams({ q: search, limit: '20', cursor: paging.cursor })}`, { cache: 'no-store' });
+      setCategories(data.items); setNextCursor(data.nextCursor ?? null); setTotal(data.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load categories");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [search, paging.cursor]);
+
+  const connected = useAdminLive(() => load(true));
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(() => void load(), 250);
+    return () => clearTimeout(timer);
   }, [load]);
 
   const openCreate = () => {
@@ -83,6 +98,7 @@ function CategoriesManager() {
   const save = async () => {
     setFormError(null);
     if (!form.name.trim()) return setFormError("Name is required.");
+    if (form.image.trim() && form.image.trim() !== editing?.image && !isImageKitUrl(form.image.trim())) return setFormError('Use a valid HTTPS ImageKit image URL.');
 
     setSaving(true);
     try {
@@ -139,11 +155,13 @@ function CategoriesManager() {
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-slate-700">Categories</h2>
+        <LiveStatus connected={connected} />
         <Button size="sm" onClick={openCreate}>
           + Add category
         </Button>
       </div>
 
+      <input aria-label="Search categories" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search category names…" className={INPUT} />
       {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
 
       {loading ? (
@@ -170,7 +188,8 @@ function CategoriesManager() {
                     <div className="flex items-center gap-3">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={c.image || PLACEHOLDER_IMAGE}
+                        src={imageUrl(c.image || PLACEHOLDER_IMAGE, 80, 80)}
+                        loading="lazy"
                         alt=""
                         className="h-10 w-10 shrink-0 rounded-lg object-cover"
                       />
@@ -195,6 +214,7 @@ function CategoriesManager() {
           </table>
         </div>
       )}
+      <CursorPager page={paging.page} total={total} nextCursor={nextCursor} onNext={paging.next} onPrevious={paging.previous} disabled={loading} />
 
       {/* Create / Edit modal */}
       <Modal
@@ -218,6 +238,7 @@ function CategoriesManager() {
           </Field>
           <Field label="Image URL">
             <input className={INPUT} value={form.image} onChange={(e) => set("image", e.target.value)} />
+            <ImageKitPreview url={form.image} existing={form.image === editing?.image} />
           </Field>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Order">
@@ -228,20 +249,9 @@ function CategoriesManager() {
                 onChange={(e) => set("order", e.target.value)}
               />
             </Field>
-            <Field label="Parent category">
-              <select
-                className={INPUT}
-                value={form.parentCategory}
-                onChange={(e) => set("parentCategory", e.target.value)}
-              >
-                <option value="">None (top level)</option>
-                {parentOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <div><p className="mb-1 text-xs font-medium text-slate-500">Parent category (optional)</p>
+              <CataloguePicker value={form.parentCategory ? [form.parentCategory] : []} onChange={(ids) => set('parentCategory', ids[0] ?? '')} exclude={editing ? [editing.id] : []} />
+            </div>
           </div>
         </div>
 
@@ -266,7 +276,7 @@ function CategoriesManager() {
       >
         <p className="text-sm text-slate-600">
           Delete <span className="font-semibold text-slate-800">{deleteTarget?.name}</span>? Products in this
-          category will not be deleted, but may become uncategorised.
+          category and child categories must be moved or deleted first.
         </p>
       </Modal>
     </div>

@@ -6,18 +6,22 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { Link, useRouter } from "expo-router";
 import type { Paginated, Product } from "@shared/types";
 import { apiFetch, formatINR } from "@/lib/api";
 import { useCart } from "@/lib/cart";
+import { useBrandContext, useBrandReady } from "@/context/BrandContext";
 import { colors, radius, spacing } from "@/lib/theme";
+import { Text } from "@/components/ui/Typography";
+import { Footer } from "@/components/ui/Footer";
 
 export default function HomeScreen() {
   const router = useRouter();
   const { count } = useCart();
+  const { loading: brandLoading } = useBrandContext();
+  const brand = useBrandReady();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,10 +42,20 @@ export default function HomeScreen() {
     load();
   }, [load]);
 
-  if (loading) {
+  // Show branded splash/loading screen while brand or products are loading
+  if (brandLoading || loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color={colors.brand} />
+      <View style={styles.splashContainer}>
+        {brand.logoUrl && (
+          <Image
+            source={{ uri: brand.logoUrl }}
+            style={styles.splashLogo}
+            resizeMode="contain"
+          />
+        )}
+        <Text style={styles.splashTitle}>{brand.appName}</Text>
+        <Text style={styles.splashSubtitle}>{brand.tagline}</Text>
+        <ActivityIndicator size="large" color={colors.brand} style={{ marginTop: spacing.lg }} />
       </View>
     );
   }
@@ -59,17 +73,18 @@ export default function HomeScreen() {
         data={products}
         keyExtractor={(p) => p.id}
         numColumns={2}
-        contentContainerStyle={{ padding: spacing.sm }}
+        contentContainerStyle={{ padding: spacing.sm, paddingBottom: spacing.xl }}
         columnWrapperStyle={{ gap: spacing.sm }}
         refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}
         ListHeaderComponent={
           <View style={styles.hero}>
-            <Text style={styles.heroTitle}>Everything for Your Dream Home</Text>
-            <Text style={styles.heroSub}>Tiles · Paints · Electrical · Interiors</Text>
+            <Text style={styles.heroTitle}>{brand.tagline}</Text>
+            <Text style={styles.heroSub}>{brand.appName}</Text>
           </View>
         }
         renderItem={({ item }) => <ProductCard product={item} />}
         ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
+        ListFooterComponent={<Footer />}
       />
     </View>
   );
@@ -118,4 +133,30 @@ const styles = StyleSheet.create({
   cardTitle: { marginTop: spacing.sm, fontSize: 13, fontWeight: "600", color: colors.text },
   cardPrice: { marginTop: spacing.xs, fontSize: 15, fontWeight: "700", color: colors.text },
   oos: { marginTop: spacing.xs, fontSize: 11, color: colors.red, fontWeight: "600" },
+
+  // Splash/loading screen
+  splashContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.bg,
+    padding: spacing.xl,
+  },
+  splashLogo: {
+    width: 120,
+    height: 120,
+    borderRadius: radius.xl,
+    backgroundColor: colors.card,
+  },
+  splashTitle: {
+    marginTop: spacing.lg,
+    fontSize: 24,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  splashSubtitle: {
+    marginTop: spacing.xs,
+    fontSize: 16,
+    color: colors.textMuted,
+  },
 });

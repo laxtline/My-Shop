@@ -1,19 +1,19 @@
 "use client";
 
-import Link from "next/link";
-import type { Product } from "@shared/types";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { addToCart, selectIsInCart } from "@/store/cartSlice";
-import { useAuthAction } from "@/components/auth/AuthActionProvider";
-import { Button } from "@/components/ui/Button";
-import { Price } from "@/components/ui/Price";
-import { Rating } from "@/components/ui/Rating";
-import { Badge } from "@/components/ui/Badge";
-import { useToast } from "@/components/ui/Toast";
-import { primaryImage } from "@/lib/format";
-import { WishlistButton } from "./WishlistButton";
+import Link from 'next/link';
+import type { Product } from '@shared/types';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { addToCart, selectIsInCart } from '@/store/cartSlice';
+import { useAuthAction } from '@/components/auth/AuthActionProvider';
+import { Button } from '@/components/ui/Button';
+import { Price } from '@/components/ui/Price';
+import { Rating } from '@/components/ui/Rating';
+import { Badge } from '@/components/ui/Badge';
+import { useToast } from '@/components/ui/Toast';
+import { primaryImage } from '@/lib/format';
+import { WishlistButton } from './WishlistButton';
 
-/** Product tile used across grids and rails. Handles add-to-cart + wishlist inline. */
+// Product tile used across grids and rails. Handles add-to-cart + wishlist inline.
 export function ProductCard({ product }: { product: Product }) {
   const dispatch = useAppDispatch();
   const { requireAuth } = useAuthAction();
@@ -29,9 +29,9 @@ export function ProductCard({ product }: { product: Product }) {
       if (addToCart.fulfilled.match(result)) {
         toast(`${product.title} added to cart`);
       } else {
-        toast("Could not add to cart. Please try again.", "error");
+        toast('Could not add to cart. Please try again.', 'error');
       }
-    }, "Sign in to add items to your cart");
+    }, 'Sign in to add items to your cart');
 
   return (
     <div className="group relative flex flex-col rounded-2xl border border-slate-100 bg-white p-3 shadow-card transition-shadow hover:shadow-card-hover">

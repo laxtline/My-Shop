@@ -1,11 +1,11 @@
-/** Operational error carrying an HTTP status code. Thrown by controllers. */
+// Operational error carrying an HTTP status code. Thrown by controllers.
 export class ApiError extends Error {
   statusCode: number;
 
   constructor(statusCode: number, message: string) {
     super(message);
     this.statusCode = statusCode;
-    this.name = "ApiError";
+    this.name = 'ApiError';
     Error.captureStackTrace?.(this, ApiError);
   }
 }

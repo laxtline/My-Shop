@@ -11,10 +11,30 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
 import { OrderStatusBadge } from "./OrderStatusBadge";
 import { formatINR, PLACEHOLDER_IMAGE } from "@/lib/format";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 const CANCELLABLE = ["PLACED", "CONFIRMED"];
 
 export function OrderDetailView({ id }: { id: string }) {
+  return (
+    <ProtectedRoute fallback={<SignInPrompt />}>
+      <OrderDetail id={id} />
+    </ProtectedRoute>
+  );
+}
+
+function SignInPrompt() {
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">
+      <p className="text-slate-600">Please sign in to view this order.</p>
+      <Link href="/" className="mt-3 inline-block font-medium text-brand hover:underline">
+        Go home
+      </Link>
+    </div>
+  );
+}
+
+function OrderDetail({ id }: { id: string }) {
   const dispatch = useAppDispatch();
   const { current, currentStatus } = useAppSelector((s) => s.orders);
   const brand = useAppSelector((s) => s.brand.brand);

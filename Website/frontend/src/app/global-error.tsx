@@ -1,5 +1,7 @@
 "use client";
 
+import "./fonts.css";
+
 /**
  * Global error boundary — the last-resort fallback if the root layout itself
  * throws. It must render its own <html>/<body> because it replaces the layout.
@@ -9,7 +11,7 @@ export default function GlobalError({ reset }: { error: Error & { digest?: strin
     <html lang="en">
       <body
         style={{
-          fontFamily: "Arial, sans-serif",
+          fontFamily: "var(--font-open-sans)",
           display: "grid",
           placeItems: "center",
           minHeight: "100vh",
@@ -32,6 +34,7 @@ export default function GlobalError({ reset }: { error: Error & { digest?: strin
               background: "#2563eb",
               color: "#fff",
               fontWeight: 600,
+              fontFamily: "inherit",
               cursor: "pointer",
             }}
           >

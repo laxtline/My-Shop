@@ -4,7 +4,9 @@ import { Badge } from "@/components/ui/Badge";
 const TONE: Record<OrderStatus, "amber" | "brand" | "emerald" | "red" | "slate"> = {
   PLACED: "amber",
   CONFIRMED: "brand",
+  PACKED: "brand",
   SHIPPED: "brand",
+  OUT_FOR_DELIVERY: "brand",
   DELIVERED: "emerald",
   CANCELLED: "red",
 };
@@ -12,7 +14,9 @@ const TONE: Record<OrderStatus, "amber" | "brand" | "emerald" | "red" | "slate">
 const LABEL: Record<OrderStatus, string> = {
   PLACED: "Placed",
   CONFIRMED: "Confirmed",
+  PACKED: "Packed",
   SHIPPED: "Shipped",
+  OUT_FOR_DELIVERY: "Out for Delivery",
   DELIVERED: "Delivered",
   CANCELLED: "Cancelled",
 };

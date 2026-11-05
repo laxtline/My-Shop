@@ -4,6 +4,7 @@ import {
   addToCart,
   updateCartItem,
   removeFromCart,
+  mergeCart,
 } from "../controllers/cartController.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -16,6 +17,7 @@ const router = Router();
 router.use(requireAuth);
 
 router.get("/", asyncHandler(getCart));
+router.post('/merge', asyncHandler(mergeCart));
 router.post("/add", validateBody(cartAddSchema), asyncHandler(addToCart));
 router.put("/update", validateBody(cartUpdateSchema), asyncHandler(updateCartItem));
 router.delete("/remove/:id", asyncHandler(removeFromCart));

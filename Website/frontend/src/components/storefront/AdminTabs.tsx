@@ -10,6 +10,7 @@ const TABS = [
   { href: "/admin/products", label: "Products" },
   { href: "/admin/categories", label: "Categories" },
   { href: "/admin/coupons", label: "Coupons" },
+  { href: "/admin/brand", label: "Brand" },
 ];
 
 /** Segmented navigation shared across the admin pages. */

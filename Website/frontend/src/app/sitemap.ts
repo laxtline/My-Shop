@@ -5,7 +5,7 @@ import { absoluteUrl } from "@/lib/site";
 
 export const revalidate = 3600; // refresh the sitemap hourly
 
-/** Dynamic sitemap: static pages + every category + product. */
+/** Bounded discovery sitemap. Large catalogues are crawled through paginated pages. */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [
     { url: absoluteUrl("/"), changeFrequency: "daily", priority: 1 },
@@ -13,12 +13,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
 
   const [categories, products] = await Promise.all([
-    serverFetchOrNull<Category[]>("/api/categories"),
+    serverFetchOrNull<Paginated<Category>>("/api/categories?limit=100"),
     // Pull a large page of products for the sitemap (limit is capped at 60 server-side).
     serverFetchOrNull<Paginated<Product>>(`/api/products${buildQuery({ limit: 60, sort: "newest" })}`),
   ]);
 
-  const categoryPages: MetadataRoute.Sitemap = (categories ?? []).map((c) => ({
+  const categoryPages: MetadataRoute.Sitemap = (categories?.items ?? []).map((c) => ({
     url: absoluteUrl(`/products?category=${c.slug}`),
     changeFrequency: "weekly",
     priority: 0.7,

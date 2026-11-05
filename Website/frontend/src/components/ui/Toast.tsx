@@ -9,9 +9,9 @@ import {
   useRef,
   useState,
   type ReactNode,
-} from "react";
+} from 'react';
 
-type ToastTone = "success" | "error" | "info";
+type ToastTone = 'success' | 'error' | 'info';
 
 interface Toast {
   id: number;
@@ -20,7 +20,7 @@ interface Toast {
 }
 
 interface ToastApi {
-  /** Show a transient message. Returns nothing — toasts are fire-and-forget. */
+  // Show a transient message. Returns nothing — toasts are fire-and-forget.
   toast: (message: string, tone?: ToastTone) => void;
 }
 
@@ -30,22 +30,20 @@ const VISIBLE_MS = 2600;
 const MAX_VISIBLE = 3;
 
 const TONE_STYLES: Record<ToastTone, string> = {
-  success: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  error: "border-red-200 bg-red-50 text-red-700",
-  info: "border-slate-200 bg-white text-slate-700",
+  success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  error: 'border-red-200 bg-red-50 text-red-700',
+  info: 'border-slate-200 bg-white text-slate-700',
 };
 
 const TONE_ICON: Record<ToastTone, string> = {
-  success: "✓",
-  error: "!",
-  info: "i",
+  success: '✓',
+  error: '!',
+  info: 'i',
 };
 
-/**
- * Lightweight toast host. Deliberately dependency-free: it reuses the existing
- * Tailwind tokens (shadow-card, animate-fade-in, brand colours) so notifications
- * match the rest of the UI and add no bundle weight.
- */
+// Lightweight toast host. Deliberately dependency-free: it reuses the existing
+// Tailwind tokens (shadow-card, animate-fade-in, brand colours) so notifications
+// match the rest of the UI and add no bundle weight.
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(0);
@@ -62,7 +60,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toast = useCallback(
-    (message: string, tone: ToastTone = "success") => {
+    (message: string, tone: ToastTone = 'success') => {
       const id = nextId.current++;
       // Cap the stack so a burst of actions can't cover the screen.
       setToasts((list) => [...list, { id, message, tone }].slice(-MAX_VISIBLE));
@@ -118,10 +116,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * Access the toast API. Returns a no-op outside the provider so a component can
- * be rendered in isolation (tests, Storybook) without crashing.
- */
+// Access the toast API. Returns a no-op outside the provider so a component can
+// be rendered in isolation (tests, Storybook) without crashing.
 export function useToast(): ToastApi {
   const ctx = useContext(ToastContext);
   return ctx ?? NOOP_TOAST;
