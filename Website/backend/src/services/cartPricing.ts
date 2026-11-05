@@ -31,7 +31,8 @@ export async function priceCart(userId: string, session?: ClientSession) {
 
   // If some items were removed, persist the cleaned cart.
   if (validItems.length !== cart.items.length) {
-    cart.items = validItems;
+    // Use set to properly replace Mongoose DocumentArray
+    cart.items = validItems as any;
     cart.lastUpdatedAt = new Date();
     await cart.save({ session });
   }
