@@ -1,31 +1,46 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { googleLogout } from "@react-oauth/google";
 import type { User } from "@shared/types";
 import { apiFetch } from "@/lib/api";
+import { hasGuestSession, saveGuestSession } from "@/lib/auth-session";
+import type { RootState } from "./index";
 
 interface AuthState {
   user: User | null;
-  // 'bootstrapping' = checking existing session on load; gate shows splash until done.
-  status: "bootstrapping" | "anonymous" | "authenticated" | "authenticating";
+  status: "bootstrapping" | "anonymous" | "authenticated" | "authenticating" | "signing-out";
+  isGuest: boolean;
+  sessionRequestId: string | null;
   error: string | null;
 }
 
 const initialState: AuthState = {
   user: null,
   status: "bootstrapping",
+  isGuest: false,
+  sessionRequestId: null,
   error: null,
 };
 
-/** Check for an existing session (httpOnly cookie) on app load. */
-export const fetchMe = createAsyncThunk("auth/me", async (_, { rejectWithValue }) => {
-  try {
-    const data = await apiFetch<{ user: User }>("/api/auth/me");
-    return data.user;
-  } catch {
-    return rejectWithValue("no-session");
+/** Check the backend session once. Its cookie may live on a different domain. */
+export const fetchMe = createAsyncThunk(
+  "auth/me",
+  async (_, { rejectWithValue }) => {
+    if (hasGuestSession()) return null;
+    try {
+      const data = await apiFetch<{ user: User }>("/api/auth/me");
+      return data.user;
+    } catch {
+      return rejectWithValue("no-session");
+    }
+  },
+  {
+    condition: (_, { getState }) => {
+      const auth = (getState() as RootState).auth;
+      return auth.status === "bootstrapping" && !auth.sessionRequestId;
+    },
   }
-});
+);
 
-/** Exchange a Google ID token credential for a session. */
 export const loginWithGoogle = createAsyncThunk(
   "auth/google",
   async (credential: string, { rejectWithValue }) => {
@@ -34,88 +49,103 @@ export const loginWithGoogle = createAsyncThunk(
         method: "POST",
         body: JSON.stringify({ credential }),
       });
+      saveGuestSession(false);
       return data.user;
     } catch (err) {
       return rejectWithValue(err instanceof Error ? err.message : "Login failed");
     }
-  }
+  },
+  { condition: (_, { getState }) => !["authenticating", "signing-out"].includes((getState() as RootState).auth.status) }
 );
 
 export const logout = createAsyncThunk(
   "auth/logout",
-  async (_, { rejectWithValue }) => {
+  async (_, { getState, rejectWithValue }) => {
     try {
-      await apiFetch("/api/auth/logout", { method: "POST" });
+      if ((getState() as RootState).auth.user) {
+        await apiFetch("/api/auth/logout", { method: "POST" });
+      }
+      saveGuestSession(false);
+      googleLogout();
     } catch (err) {
-      // Even if backend fails, we still want to clear local state.
-      // Return a special value to signal "force clear" vs real error.
-      return rejectWithValue({ forceClear: true, message: err instanceof Error ? err.message : "Logout failed" });
+      // Keep the session visible on failure so a refresh cannot silently sign back in.
+      return rejectWithValue(err instanceof Error ? err.message : "Logout failed. Please try again.");
     }
-  }
+  },
+  { condition: (_, { getState }) => !["bootstrapping", "authenticating", "signing-out"].includes((getState() as RootState).auth.status) }
 );
 
 const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    /** Replace the current user (e.g. after saving/removing an address). */
     setUser(state, action: PayloadAction<User>) {
       state.user = action.payload;
     },
-    /**
-     * Record a sign-in failure that happened *before* our thunk ran — i.e. inside
-     * Google's own widget (popup blocked, origin not authorised, bad client ID).
-     * Without this the button just silently does nothing, because
-     * `loginWithGoogle` is never dispatched and no error is ever set.
-     */
+    continueAsGuest(state) {
+      if (state.user || ["bootstrapping", "authenticating", "signing-out"].includes(state.status)) return;
+      state.isGuest = true;
+      state.status = "anonymous";
+      state.error = null;
+    },
     setAuthError(state, action: PayloadAction<string>) {
       state.error = action.payload;
-      state.status = "anonymous";
+      state.status = state.user ? "authenticated" : "anonymous";
     },
-    /** Clear a stale error, e.g. when the login dialog is reopened. */
     clearAuthError(state) {
       state.error = null;
     },
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchMe.fulfilled, (state, action) => {
-        state.user = action.payload;
-        state.status = "authenticated";
+      .addCase(fetchMe.pending, (state, action) => {
+        state.sessionRequestId = action.meta.requestId;
       })
-      .addCase(fetchMe.rejected, (state) => {
+      .addCase(fetchMe.fulfilled, (state, action) => {
+        if (state.sessionRequestId !== action.meta.requestId) return;
+        state.sessionRequestId = null;
+        state.user = action.payload;
+        state.isGuest = !action.payload;
+        state.status = action.payload ? "authenticated" : "anonymous";
+      })
+      .addCase(fetchMe.rejected, (state, action) => {
+        if (state.sessionRequestId !== action.meta.requestId) return;
+        state.sessionRequestId = null;
         state.user = null;
+        state.isGuest = false;
         state.status = "anonymous";
       })
       .addCase(loginWithGoogle.pending, (state) => {
+        state.sessionRequestId = null;
         state.status = "authenticating";
         state.error = null;
       })
       .addCase(loginWithGoogle.fulfilled, (state, action) => {
         state.user = action.payload;
+        state.isGuest = false;
         state.status = "authenticated";
       })
       .addCase(loginWithGoogle.rejected, (state, action) => {
-        state.status = "anonymous";
+        state.status = state.user ? "authenticated" : "anonymous";
         state.error = (action.payload as string) ?? "Login failed";
+      })
+      .addCase(logout.pending, (state) => {
+        state.sessionRequestId = null;
+        state.status = "signing-out";
+        state.error = null;
       })
       .addCase(logout.fulfilled, (state) => {
         state.user = null;
+        state.isGuest = false;
         state.status = "anonymous";
+        state.error = null;
       })
       .addCase(logout.rejected, (state, action) => {
-        // Force clear state even if backend call failed
-        const payload = action.payload as { forceClear?: boolean } | undefined;
-        if (payload?.forceClear) {
-          state.user = null;
-          state.status = "anonymous";
-        } else {
-          state.status = "anonymous";
-          state.error = (action.payload as string) ?? "Logout failed";
-        }
+        state.status = state.user ? "authenticated" : "anonymous";
+        state.error = (action.payload as string) ?? "Logout failed. Please try again.";
       });
   },
 });
 
-export const { setUser, setAuthError, clearAuthError } = authSlice.actions;
+export const { setUser, continueAsGuest, setAuthError, clearAuthError } = authSlice.actions;
 export default authSlice.reducer;

@@ -66,6 +66,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <div className="flex flex-col items-center gap-3">
               <div className={status === "authenticating" ? "pointer-events-none opacity-60" : ""}>
                 <GoogleLogin
+                  auto_select={false}
+                  useOneTap={false}
                   onSuccess={(cred) => {
                     if (cred.credential) dispatch(loginWithGoogle(cred.credential));
                   }}

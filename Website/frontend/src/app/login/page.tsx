@@ -1,197 +1,147 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { GoogleLogin } from "@react-oauth/google";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { loginWithGoogle, fetchMe, setAuthError } from "@/store/authSlice";
+import { clearAuthError, continueAsGuest, loginWithGoogle, logout, setAuthError } from "@/store/authSlice";
+import { saveGuestSession, signedInDestination } from "@/lib/auth-session";
 import { Button } from "@/components/ui/Button";
-import { fetchBrand } from "@/store/brandSlice";
+import styles from "./login.module.css";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
-const ADMIN_EMAIL = "suryakant321pradhan@gmail.com";
 
-/**
- * Login page with three options:
- * - Admin: Google OAuth with admin email
- * - Customer: Google OAuth with any Gmail
- * - Guest: Continue without login (browse only)
- */
 export default function LoginPage() {
+  return <Suspense fallback={<Loading />}><LoginOptions /></Suspense>;
+}
+
+function Loading() {
+  return <div className="grid min-h-screen place-items-center text-slate-500" role="status">Loading sign-in options...</div>;
+}
+
+function LoginOptions() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const dispatch = useAppDispatch();
-  const { status, error } = useAppSelector((s) => s.auth);
+  const { user, status, error } = useAppSelector((s) => s.auth);
   const brand = useAppSelector((s) => s.brand.brand);
-  const redirectTo = searchParams.get("redirect") || "/products";
+  const googleContainer = useRef<HTMLDivElement>(null);
+  const [googleWidth, setGoogleWidth] = useState(320);
+  const [hydrated, setHydrated] = useState(false);
+  const redirectTo = searchParams.get("redirect");
+  const busy = status === "authenticating" || status === "signing-out";
 
-  const [showGuestNotice, setShowGuestNotice] = useState(false);
-
-  // Fetch brand config on mount
   useEffect(() => {
-    dispatch(fetchBrand());
-    // Also try to restore session
-    dispatch(fetchMe());
+    setHydrated(true);
+    dispatch(clearAuthError());
   }, [dispatch]);
 
-  const handleGoogleSuccess = (credential: string) => {
-    if (credential) dispatch(loginWithGoogle(credential));
-  };
+  useEffect(() => {
+    const container = googleContainer.current;
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setGoogleWidth(Math.min(400, Math.floor(entry.contentRect.width)));
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [status, user, hydrated]);
 
-  const handleGoogleError = () => {
-    dispatch(
-      setAuthError(
-        "Google sign-in could not start. Allow pop-ups for this site and try again."
-      )
-    );
+  const handleGoogleSuccess = async (credential: string) => {
+    const result = await dispatch(loginWithGoogle(credential));
+    if (loginWithGoogle.fulfilled.match(result)) {
+      router.replace(signedInDestination(result.payload.role, redirectTo));
+    }
   };
 
   const handleGuestContinue = () => {
-    // Guest can browse products but will need to login at checkout
-    setShowGuestNotice(true);
-    setTimeout(() => router.push("/products"), 1500);
+    saveGuestSession(true);
+    dispatch(continueAsGuest());
+    router.replace("/products");
   };
 
-  const isConfigMissing = !GOOGLE_CLIENT_ID;
+  if (!hydrated || status === "bootstrapping") return <Loading />;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4 py-12">
-      <div className="w-full max-w-md">
-        {/* Brand Header */}
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 mb-6">
-            <img
-              src={brand.logoUrl}
-              alt={`${brand.appName} logo`}
-              className="h-16 w-16 rounded-xl object-contain mx-auto"
-            />
-          </Link>
-          <h1 className="text-3xl font-bold text-slate-900">{brand.appName}</h1>
-          <p className="mt-2 text-slate-500">{brand.tagline}</p>
-        </div>
+    <div
+      className={styles.page}
+      style={{ "--login-accent": /^#[\da-f]{6}$/i.test(brand.themeColor) ? brand.themeColor : "#2563eb" } as CSSProperties}
+    >
+      <header className={styles.topbar}>
+        <span className={styles.headerBrand}>{brand.appName}</span>
+        <span className={styles.headerTitle}>Login</span>
+      </header>
 
-        {/* Login Options */}
-        <div className="space-y-4">
-          {/* Admin Login */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-card">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="h-10 w-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600 text-xl">
-                🛡️
-              </span>
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800">Admin Login</h3>
-                <p className="text-xs text-slate-500">Access admin dashboard & analytics</p>
-              </div>
+      <main className={styles.main}>
+        <div className={styles.content}>
+          <div className={styles.logoScene}>
+            <span className={styles.logoHalo} aria-hidden="true" />
+            <span className={styles.sparkOne} aria-hidden="true" />
+            <span className={styles.sparkTwo} aria-hidden="true" />
+            <span className={styles.sparkThree} aria-hidden="true" />
+            <img src={brand.logoUrl} alt={`${brand.appName} logo`} className={styles.logo} />
+          </div>
+          <p className={styles.brandName}>{brand.appName}</p>
+          <h1 className={styles.heading}>Welcome Back!</h1>
+          <p className={styles.subtitle}>Login to continue to our store</p>
+
+          {user ? (
+            <div className={styles.actions}>
+              <p className={styles.signedIn}>Signed in as <strong>{user.name}</strong><br />{user.email}</p>
+              <Button className={styles.continueButton} disabled={busy} onClick={() => router.replace(signedInDestination(user.role, redirectTo))}>
+                Continue to {user.role === "ADMIN" ? "admin dashboard" : "shop"}
+              </Button>
+              <button className={styles.guestButton} disabled={busy} onClick={() => dispatch(logout())}>
+                {busy ? "Signing out..." : "Sign out / Switch account"}
+              </button>
             </div>
-            <p className="text-sm text-slate-600 mb-4">
-              Sign in with <strong>{ADMIN_EMAIL}</strong> to access admin features.
-            </p>
-            {isConfigMissing ? (
-              <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700">
-                Google Sign-In not configured. Set <code>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in
-                <code>.env.local</code>.
+          ) : (
+            <div className={styles.actions}>
+              <div ref={googleContainer} className={styles.googleContainer}>
+                {!GOOGLE_CLIENT_ID ? (
+                  <p className={styles.notice}>Google sign-in is currently unavailable. Please try again later or continue as a guest.</p>
+                ) : (
+                  <div className={busy ? styles.busy : undefined} inert={busy}>
+                    <GoogleLogin
+                      onSuccess={(response) => {
+                        if (response.credential) void handleGoogleSuccess(response.credential);
+                        else dispatch(setAuthError("Google did not return a sign-in credential. Please try again."));
+                      }}
+                      onError={() => dispatch(setAuthError("Google sign-in could not start. Allow pop-ups for this site and try again."))}
+                      auto_select={false}
+                      useOneTap={false}
+                      theme="outline"
+                      size="large"
+                      shape="pill"
+                      text="signin_with"
+                      width={googleWidth}
+                      containerProps={{ style: { display: "flex", justifyContent: "center" } }}
+                    />
+                  </div>
+                )}
               </div>
-            ) : (
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={handleGoogleError}
-                disabled={status === "authenticating"}
-                theme="filled_blue"
-                size="large"
-                shape="pill"
-                text="continue_with"
-                logo_alignment="left"
-                className="w-full"
-              />
-            )}
-            {status === "authenticating" && (
-              <p className="mt-3 text-center text-xs text-slate-400">Signing you in…</p>
-            )}
-          </div>
-
-          {/* Customer Login */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-card">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 text-xl">
-                👤
-              </span>
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800">Customer Login</h3>
-                <p className="text-xs text-slate-500">Sign in with your Google account</p>
-              </div>
+              <p className={styles.accountHint}>For customers &amp; store admins</p>
+              <div className={styles.divider}><span>OR</span></div>
+              <button onClick={handleGuestContinue} disabled={busy} className={styles.guestButton}>
+                <svg width="24" height="26" viewBox="0 0 24 26" fill="currentColor" aria-hidden="true">
+                  <circle cx="12" cy="6" r="5" />
+                  <path d="M2 24v-3a10 10 0 0 1 20 0v3a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1Z" />
+                </svg>
+                Continue as Guest
+              </button>
+              <p className={styles.guestHint}>Take a look around. No account needed.</p>
             </div>
-            <p className="text-sm text-slate-600 mb-4">
-              Use any Gmail/Google account to access your cart, orders, wishlist, and checkout.
-            </p>
-            {isConfigMissing ? (
-              <div className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700">
-                Google Sign-In not configured. Set <code>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in
-                <code>.env.local</code>.
-              </div>
-            ) : (
-              <GoogleLogin
-                onSuccess={handleGoogleSuccess}
-                onError={handleGoogleError}
-                disabled={status === "authenticating"}
-                theme="filled_blue"
-                size="large"
-                shape="pill"
-                text="continue_with"
-                logo_alignment="left"
-                className="w-full"
-              />
-            )}
-            {status === "authenticating" && (
-              <p className="mt-3 text-center text-xs text-slate-400">Signing you in…</p>
-            )}
-          </div>
+          )}
 
-          {/* Guest Continue */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-card">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center text-green-600 text-xl">
-                🛍️
-              </span>
-              <div>
-                <h3 className="text-lg font-semibold text-slate-800">Continue as Guest</h3>
-                <p className="text-xs text-slate-500">Browse products without signing in</p>
-              </div>
-            </div>
-            <p className="text-sm text-slate-600 mb-4">
-              Browse products and add to cart. You&apos;ll be prompted to sign in only at checkout.
-            </p>
-            <Button
-              onClick={handleGuestContinue}
-              variant="outline"
-              className="w-full"
-              size="lg"
-            >
-              Continue as Guest
-            </Button>
-            {showGuestNotice && (
-              <p className="mt-3 text-center text-xs text-green-600">Redirecting to products…</p>
-            )}
-          </div>
+          {status === "authenticating" && <p className={styles.feedback} role="status">Signing you in...</p>}
+          {error && <div className={styles.error} role="alert">{error}</div>}
+          <p className={styles.support}>Need a hand? <a href={`tel:${brand.supportPhone}`}>We&apos;re here to help</a></p>
         </div>
+      </main>
 
-        {/* Error Display */}
-        {error && (
-          <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600 text-center" role="alert">
-            {error}
-          </div>
-        )}
-
-        {/* Footer Info */}
-        <div className="mt-8 text-center text-xs text-slate-400">
-          <p>By continuing, you agree to our Terms of Service and Privacy Policy.</p>
-          <p className="mt-1">Need help? <a href="tel:6370419708" className="text-brand hover:underline">Call us</a> or
-            <a href="https://api.whatsapp.com/send/?phone=916370419708" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline ml-1">
-              WhatsApp
-            </a>
-          </p>
-        </div>
-      </div>
+      <svg className={styles.waves} viewBox="0 0 1440 150" fill="none" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0 45C210-16 370 60 620 85C950 119 1130 1 1440 8V150H0Z" fill="currentColor" fillOpacity=".12" />
+        <path d="M0 93C250 17 490 133 790 126C1090 119 1220 63 1440 60V150H0Z" fill="currentColor" fillOpacity=".18" />
+      </svg>
     </div>
   );
 }
