@@ -41,9 +41,18 @@ export const loginWithGoogle = createAsyncThunk(
   }
 );
 
-export const logout = createAsyncThunk("auth/logout", async () => {
-  await apiFetch("/api/auth/logout", { method: "POST" });
-});
+export const logout = createAsyncThunk(
+  "auth/logout",
+  async (_, { rejectWithValue }) => {
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } catch (err) {
+      // Even if backend fails, we still want to clear local state.
+      // Return a special value to signal "force clear" vs real error.
+      return rejectWithValue({ forceClear: true, message: err instanceof Error ? err.message : "Logout failed" });
+    }
+  }
+);
 
 const authSlice = createSlice({
   name: "auth",
@@ -93,6 +102,17 @@ const authSlice = createSlice({
       .addCase(logout.fulfilled, (state) => {
         state.user = null;
         state.status = "anonymous";
+      })
+      .addCase(logout.rejected, (state, action) => {
+        // Force clear state even if backend call failed
+        const payload = action.payload as { forceClear?: boolean } | undefined;
+        if (payload?.forceClear) {
+          state.user = null;
+          state.status = "anonymous";
+        } else {
+          state.status = "anonymous";
+          state.error = (action.payload as string) ?? "Logout failed";
+        }
       });
   },
 });
