@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { logout } from "@/store/authSlice";
 import { selectCartCount } from "@/store/cartSlice";
@@ -12,6 +13,7 @@ import { ThemeToggle } from "./ThemeToggle";
 /** Sticky top navigation: brand, search, wishlist/cart badges, account menu, category strip. */
 export function AppHeader() {
   const dispatch = useAppDispatch();
+  const router = useRouter();
   const brand = useAppSelector((s) => s.brand.brand);
   const user = useAppSelector((s) => s.auth.user);
   const categories = useAppSelector((s) => s.categories.items);
@@ -93,6 +95,7 @@ export function AppHeader() {
                     onClick={() => {
                       setMenuOpen(false);
                       dispatch(logout());
+                      router.push("/login");
                     }}
                     className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-red-600 hover:bg-red-50"
                     role="menuitem"
