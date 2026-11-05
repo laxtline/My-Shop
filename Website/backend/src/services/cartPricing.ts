@@ -18,13 +18,32 @@ export async function priceCart(userId: string, session?: ClientSession) {
   const cart = await CartModel.findOne({ user: userId }).session(session ?? null).populate('items.product');
   if (!cart?.items.length) throw new ApiError(400, 'Your cart is empty.');
   if (cart.items.length > MAX_CART_LINES) throw new ApiError(400, `A cart can contain at most ${MAX_CART_LINES} products.`);
-  const items: PricedLine[] = cart.items.map((item) => {
+
+  // Filter out products that are deleted or inactive — auto-clean the cart.
+  const validItems = cart.items.filter((item) => {
     const p = item.product as unknown as {
       _id: Types.ObjectId; category: Types.ObjectId; title: string; images: string[];
       sku: string; price: number; stock: number; isActive: boolean;
       bulkPricing: { minQty: number; pricePerUnit: number }[];
     } | null;
-    if (!p?.isActive) throw new ApiError(400, 'A product in your cart is no longer available. Remove it to continue.');
+    return !!p?.isActive;
+  });
+
+  // If some items were removed, persist the cleaned cart.
+  if (validItems.length !== cart.items.length) {
+    cart.items = validItems;
+    cart.lastUpdatedAt = new Date();
+    await cart.save({ session });
+  }
+
+  if (!validItems.length) throw new ApiError(400, 'Your cart is empty. All items are no longer available.');
+
+  const items: PricedLine[] = validItems.map((item) => {
+    const p = item.product as unknown as {
+      _id: Types.ObjectId; category: Types.ObjectId; title: string; images: string[];
+      sku: string; price: number; stock: number; isActive: boolean;
+      bulkPricing: { minQty: number; pricePerUnit: number }[];
+    };
     if (!Number.isSafeInteger(item.quantity) || item.quantity < 1) throw new ApiError(400, 'Quantity must be a whole number of at least 1.');
     if (item.quantity > p.stock) throw new ApiError(400, `Only ${p.stock} left of "${p.title}". Update your cart.`);
     const unitPrice = unitPriceForQty(p, item.quantity);

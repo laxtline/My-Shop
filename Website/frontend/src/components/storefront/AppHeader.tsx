@@ -9,7 +9,7 @@ import { selectWishlistCount } from "@/store/wishlistSlice";
 import { SearchBar } from "./SearchBar";
 import { ThemeToggle } from "./ThemeToggle";
 
-/** Sticky top navigation: brand, search, wishlist/cart badges, account menu, category strip. */
+/** Sticky top navigation: brand, search, wishlist/cart badges, account menu, category dropdown. */
 export function AppHeader() {
   const dispatch = useAppDispatch();
   const brand = useAppSelector((s) => s.brand.brand);
@@ -19,6 +19,7 @@ export function AppHeader() {
   const cartCount = useAppSelector(selectCartCount);
   const wishCount = useAppSelector(selectWishlistCount);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [catOpen, setCatOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
@@ -35,6 +36,58 @@ export function AppHeader() {
           <ThemeToggle />
           <IconLink href="/wishlist" label="Wishlist" icon="♡" count={wishCount} />
           <IconLink href="/cart" label="Cart" icon="🛒" count={cartCount} />
+
+          {/* Categories Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setCatOpen((v) => !v)}
+              className="flex h-10 items-center gap-1 rounded-full px-3 hover:bg-slate-100 focus-ring"
+              aria-haspopup="listbox"
+              aria-expanded={catOpen}
+              aria-label="Categories"
+            >
+              <span className="text-sm font-medium text-slate-700">Categories</span>
+              <svg className="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {catOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setCatOpen(false)} aria-hidden />
+                <div className="absolute left-0 z-20 mt-2 w-48 animate-fade-in rounded-xl border border-slate-200 bg-white py-1 shadow-card-hover" role="listbox">
+                  <Link
+                    href="/products"
+                    onClick={() => setCatOpen(false)}
+                    className="block px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    role="option"
+                  >
+                    All Products
+                  </Link>
+                  <Link
+                    href="/categories"
+                    onClick={() => setCatOpen(false)}
+                    className="block px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                    role="option"
+                  >
+                    Browse Categories
+                  </Link>
+                  <hr className="my-1 border-slate-100" />
+                  {categories.map((c) => (
+                    <Link
+                      key={c.id}
+                      href={`/products?category=${c.slug}`}
+                      onClick={() => setCatOpen(false)}
+                      className="block px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-brand"
+                      role="option"
+                    >
+                      {c.name}
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
 
           <div className="relative">
             <button
@@ -109,19 +162,6 @@ export function AppHeader() {
             )}
           </div>
         </nav>
-      </div>
-
-      {/* Category quick-nav */}
-      <div className="border-t border-slate-100">
-        <div className="no-scrollbar mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 py-2">
-          <CatLink href="/products">All</CatLink>
-          <CatLink href="/categories">Browse categories</CatLink>
-          {categories.map((c) => (
-            <CatLink key={c.id} href={`/products?category=${c.slug}`}>
-              {c.name}
-            </CatLink>
-          ))}
-        </div>
       </div>
 
       {/* Mobile search */}
