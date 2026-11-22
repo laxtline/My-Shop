@@ -12,6 +12,21 @@ export function isImageKitUrl(value: string): boolean {
   }
 }
 
+/** Check if URL is a local upload (pathname starts with /uploads/). */
+export function isLocalUploadUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.pathname.startsWith('/uploads/');
+  } catch {
+    return false;
+  }
+}
+
+/** Valid image URL for products: ImageKit URL or local upload URL. */
+export function isValidProductImageUrl(value: string): boolean {
+  return isImageKitUrl(value) || isLocalUploadUrl(value);
+}
+
 /** Preserve legacy images; transform only verified ImageKit delivery URLs. */
 export function imageUrl(value: string, width = 400, height?: number): string {
   if (!isImageKitUrl(value)) return value;

@@ -1,7 +1,7 @@
 import type { ClientSession, Types } from 'mongoose';
 import { CartModel } from '../models/Cart.js';
 import { ApiError } from '../utils/ApiError.js';
-import { DELIVERY_FEE, FREE_DELIVERY_OVER, money, unitPriceForQty, MAX_CART_LINES } from '@shared/pricing.js';
+import { DELIVERY_FEE, FREE_DELIVERY_OVER, money, unitPriceForQty, MAX_CART_LINES, calculateDeliveryFee, type DeliveryConfig } from '@shared/pricing.js';
 
 export interface PricedLine {
   product: Types.ObjectId;
@@ -14,7 +14,7 @@ export interface PricedLine {
   lineTotal: number;
 }
 
-export async function priceCart(userId: string, session?: ClientSession) {
+export async function priceCart(userId: string, session?: ClientSession, pincode?: string, config?: DeliveryConfig) {
   const cart = await CartModel.findOne({ user: userId }).session(session ?? null).populate('items.product');
   if (!cart?.items.length) throw new ApiError(400, 'Your cart is empty.');
   if (cart.items.length > MAX_CART_LINES) throw new ApiError(400, `A cart can contain at most ${MAX_CART_LINES} products.`);
@@ -52,7 +52,10 @@ export async function priceCart(userId: string, session?: ClientSession) {
       quantity: item.quantity, unitPrice, lineTotal: money(unitPrice * item.quantity) };
   });
   const itemsTotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0));
-  const deliveryFee = itemsTotal >= FREE_DELIVERY_OVER ? 0 : DELIVERY_FEE;
+  // If pincode provided, use new delivery calculation; otherwise fallback to old logic
+  const deliveryFee = pincode
+    ? calculateDeliveryFee(itemsTotal, pincode, config).fee
+    : (itemsTotal >= FREE_DELIVERY_OVER ? 0 : DELIVERY_FEE);
   return { cart, items, itemsTotal, deliveryFee };
 }
 export type PricedCart = Awaited<ReturnType<typeof priceCart>>;

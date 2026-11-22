@@ -12,10 +12,14 @@ import { cursorFilter, cursorPage, getPageParams } from '../utils/pagination.js'
 import { sendOrderPlacedEmail, sendOrderStatusEmail } from '../utils/email.js';
 import { resolveCoupon } from '../services/coupons.js';
 import { priceCart } from '../services/cartPricing.js';
-import { money } from '@shared/pricing.js';
+import { money, calculateDeliveryFee } from '@shared/pricing.js';
 import { notifyNewOrder, notifyOrderStatusChange, notifyAdmins } from '../services/push.js';
 import { getEncryptionService } from '../services/encryption.js';
-import type { OrderStatus, ShippingAddress } from '@shared/types/index.js';
+import { env, razorpayEnabled } from '../config/env.js';
+import { shipmentSummary, cancelShipmentForOrder, getShippingSettings } from '../services/shipping/index.js';
+import { createCancellationRefund, refundRazorpayPayment } from '../services/refunds.js';
+import { ShipmentModel } from '../models/Shipment.js';
+import type { OrderStatus, ShippingAddress, ReturnStatus } from '@shared/types/index.js';
 
 const sort = { field: 'createdAt', direction: -1, kind: 'date' } as const;
 // TODO: move STATUS_FLOW to shared constants so frontend/admin stay in sync
@@ -50,12 +54,34 @@ export async function createOrder(req: Request, res: Response) {
   const userId = String(req.user!._id);
   const shippingAddress = validateAddress(req.body.shippingAddress);
   const paymentMethod = req.body.paymentMethod === 'RAZORPAY' ? 'RAZORPAY' : 'COD';
+  const requestedChannel = String(req.body.paymentChannel ?? '').toUpperCase();
+  const paymentChannel = paymentMethod === 'COD'
+    ? 'COD'
+    : (['UPI', 'CARD', 'NETBANKING', 'WALLET'].includes(requestedChannel) ? requestedChannel : 'UNKNOWN');
   const notes = String(req.body.notes ?? '').slice(0, 500);
   const code = String(req.body.couponCode ?? '').trim();
 
+  // Validate serviceability and COD availability against the shop's live
+  // shipping policy (not a hard-coded table).
+  const settings = await getShippingSettings();
+  const deliveryConfig = {
+    baseFee: settings.baseDeliveryFee,
+    freeOver: settings.freeDeliveryOver,
+    serviceablePincodes: settings.serviceablePincodes,
+    noCodPincodes: settings.noCodPincodes,
+  };
+  const { codAvailable, serviceable } = calculateDeliveryFee(0, shippingAddress.pincode, deliveryConfig);
+  if (!serviceable) {
+    throw new ApiError(400, `Delivery is not available to pincode ${shippingAddress.pincode}.`);
+  }
+  if (paymentMethod === 'COD' && (!settings.codEnabled || !codAvailable)) {
+    throw new ApiError(400, `Cash on Delivery is not available for pincode ${shippingAddress.pincode}. Please choose online payment.`);
+  }
+  const codFee = paymentMethod === 'COD' ? settings.codFee : 0;
+
   // transaction prevents overselling, double checkout, coupon limit races
   const order = await mongoose.connection.transaction(async (session) => {
-    const priced = await priceCart(userId, session);
+    const priced = await priceCart(userId, session, shippingAddress.pincode, deliveryConfig);
     const resolved = code ? await resolveCoupon(code, userId, priced, session) : null;
     for (const line of priced.items) {
       const stock = await ProductModel.updateOne({ _id: line.product, isActive: true, stock: { $gte: line.quantity } },
@@ -66,12 +92,13 @@ export async function createOrder(req: Request, res: Response) {
     const now = new Date();
     const [created] = await OrderModel.create([{
       user: userId, items: priced.items, shippingAddress, paymentMethod, paymentStatus: 'PENDING', status: 'PLACED',
+      paymentChannel,
       itemsTotal: priced.itemsTotal, deliveryFee: priced.deliveryFee, discount,
       coupon: resolved?.coupon._id ?? null, couponCode: resolved?.coupon.code ?? '',
       couponSnapshot: resolved ? { code: resolved.coupon.code, description: resolved.coupon.description,
         type: resolved.coupon.type, value: resolved.coupon.value, maxDiscount: resolved.coupon.maxDiscount,
         scope: resolved.coupon.scope, eligibleTotal: resolved.eligibleTotal } : null,
-      total: money(priced.itemsTotal + priced.deliveryFee - discount), notes,
+      total: money(priced.itemsTotal + priced.deliveryFee - discount + codFee), notes,
       statusHistory: [{ status: 'PLACED', timestamp: now, note: 'Order placed' }],
     }], { session });
     if (resolved) {
@@ -113,7 +140,12 @@ export async function getOrder(req: Request, res: Response) {
   const order = await OrderModel.findById(req.params.id).populate('user', 'name email');
   if (!order) throw new ApiError(404, 'Order not found.');
   if (String(order.user._id) !== String(req.user!._id) && req.user!.role !== 'ADMIN') throw new ApiError(403, 'Not allowed.');
-  res.json({ success: true, data: order });
+
+  const shipment = order.shipment ? await ShipmentModel.findById(order.shipment) : null;
+  res.json({
+    success: true,
+    data: { ...order.toObject(), shipment: shipment ? shipmentSummary(shipment) : null },
+  });
 }
 
 async function changeStatus(req: Request, next: OrderStatus, ownerOnly: boolean) {
@@ -122,6 +154,24 @@ async function changeStatus(req: Request, next: OrderStatus, ownerOnly: boolean)
     if (!current) throw new ApiError(404, 'Order not found.');
     if (ownerOnly && String(current.user) !== String(req.user!._id)) throw new ApiError(403, 'Not allowed.');
     if (!STATUS_FLOW[current.status as OrderStatus]?.includes(next)) throw new ApiError(400, `Cannot change status from ${current.status} to ${next}.`);
+
+    // Prevent fulfilling unpaid prepaid orders
+    if (current.paymentMethod === 'RAZORPAY' && current.paymentStatus !== 'PAID') {
+      // Allow cancellation of unpaid orders, but block fulfillment
+      if (next !== 'CANCELLED') {
+        throw new ApiError(400, 'Cannot advance unpaid online order. Payment must be completed first.');
+      }
+    }
+
+    // Prevent *new* online payments when the gateway is disabled, but never
+    // block fulfilment of an order that is already PAID just because keys were
+    // rotated or temporarily removed from the environment.
+    if (current.paymentMethod === 'RAZORPAY' && !razorpayEnabled && current.paymentStatus !== 'PAID') {
+      if (next !== 'CANCELLED') {
+        throw new ApiError(503, 'Online payment is not available. Cannot process this order.');
+      }
+    }
+
     if (next === 'CANCELLED') {
       for (const line of current.items) {
         if (line.product) await ProductModel.updateOne({ _id: line.product }, { $inc: { stock: line.quantity } }, { session });
@@ -130,10 +180,28 @@ async function changeStatus(req: Request, next: OrderStatus, ownerOnly: boolean)
     const note = String(req.body.note ?? '').slice(0, 500);
     current.status = next;
     addStatusHistory(current, next, note || `Status changed to ${next}`, String(req.user!._id));
-    if (next === 'DELIVERED' && current.paymentMethod === 'COD') current.paymentStatus = 'PAID';
+
+    // For COD, do NOT auto-mark as PAID on DELIVERED - requires separate cash collection
+    // Payment collection for COD should be tracked separately
+    if (next === 'DELIVERED' && current.paymentMethod === 'COD' && current.paymentStatus !== 'PAID') {
+      current.paymentStatus = 'PENDING'; // Keep as PENDING for cash collection tracking
+    }
     await current.save({ session });
     return current;
   });
+  if (next === 'CANCELLED') {
+    // Stop the carrier first; a cancelled order must not keep moving.
+    await cancelShipmentForOrder(order._id.toString());
+    // A prepaid order that is cancelled must get its money back automatically.
+    if (order.paymentMethod === 'RAZORPAY' && order.paymentStatus === 'PAID' && order.razorpayPaymentId) {
+      try {
+        await createCancellationRefund(order, 'Order cancelled');
+      } catch (error) {
+        console.error('[order] Automatic cancellation refund failed:', error);
+      }
+    }
+  }
+
   const owner = await UserModel.findById(order.user).select('email');
   if (owner?.email) void sendOrderStatusEmail(owner.email, order);
   // push for admin-initiated status changes
@@ -141,6 +209,31 @@ async function changeStatus(req: Request, next: OrderStatus, ownerOnly: boolean)
     void notifyOrderStatusChange(order._id.toString(), order.status, order.shippingAddress.fullName);
   }
   return order;
+}
+
+/**
+ * PATCH /api/orders/:id/cod-collected — Admin records cash handed over by the
+ * delivery agent. Without this step, a delivered COD order stays PENDING and
+ * revenue reports cannot distinguish cash collected from cash still owed.
+ */
+export async function markCodCollected(req: Request, res: Response) {
+  const order = await OrderModel.findById(req.params.id);
+  if (!order) throw new ApiError(404, 'Order not found.');
+  if (order.paymentMethod !== 'COD') throw new ApiError(400, 'This is not a Cash on Delivery order.');
+  if (order.status !== 'DELIVERED') throw new ApiError(400, 'Cash can be recorded after the order is delivered.');
+  if (order.paymentStatus === 'PAID') throw new ApiError(400, 'Cash was already recorded for this order.');
+
+  const now = new Date();
+  order.paymentStatus = 'PAID';
+  order.paymentChannel = 'COD';
+  order.paidAt = now;
+  order.codCollectedAt = now;
+  addStatusHistory(order, 'DELIVERED', `COD collected: ₹${order.total.toLocaleString('en-IN')}`, String(req.user!._id));
+  await order.save();
+
+  const owner = await UserModel.findById(order.user).select('email');
+  if (owner?.email) void sendOrderStatusEmail(owner.email, order);
+  res.json({ success: true, data: order, message: 'Cash collection recorded.' });
 }
 
 export async function cancelOrder(req: Request, res: Response) {
@@ -171,7 +264,15 @@ export async function updateOrderStatus(req: Request, res: Response) {
 export async function orderAnalytics(_req: Request, res: Response) {
   // 30-day window, IST dates. MongoDB aggregates, no order arrays in memory.
   const since = new Date(Date.now() - 30 * 86400000);
-  const match = { status: { $ne: 'CANCELLED' }, createdAt: { $gte: since } };
+  // Exclude cancelled orders and unpaid/failed online orders from revenue
+  const match = {
+    status: { $ne: 'CANCELLED' },
+    createdAt: { $gte: since },
+    $or: [
+      { paymentMethod: 'COD' }, // COD orders included regardless of paymentStatus
+      { paymentMethod: 'RAZORPAY', paymentStatus: 'PAID' }, // Only PAID online orders (exclude FAILED)
+    ],
+  };
   const [days, top, coupons] = await Promise.all([
     OrderModel.aggregate([
       { $match: match }, { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'Asia/Kolkata' } },
@@ -194,9 +295,16 @@ export async function orderAnalytics(_req: Request, res: Response) {
 }
 
 export async function orderStats(_req: Request, res: Response) {
+  // Match the same criteria as orderAnalytics: exclude cancelled and unpaid/failed online orders from revenue
+  const match = {
+    $or: [
+      { paymentMethod: 'COD' },
+      { paymentMethod: 'RAZORPAY', paymentStatus: 'PAID' }, // Only PAID online orders (exclude FAILED)
+    ],
+  };
   const [rows] = await OrderModel.aggregate([{ $facet: {
-    statuses: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
-    sales: [{ $match: { status: { $ne: 'CANCELLED' } } }, { $group: { _id: null,
+    statuses: [{ $match: { status: { $ne: 'CANCELLED' } } }, { $group: { _id: '$status', count: { $sum: 1 } } }],
+    sales: [{ $match: { ...match, status: { $ne: 'CANCELLED' } } }, { $group: { _id: null,
       sales: { $sum: { $sum: '$items.quantity' } }, revenue: { $sum: '$total' },
       couponUses: { $sum: { $cond: [{ $ne: ['$couponCode', ''] }, 1, 0] } }, discountGiven: { $sum: '$discount' },
     } }],
@@ -217,6 +325,10 @@ export async function updateCourierInfo(req: Request, res: Response) {
     throw new ApiError(400, 'At least courier name or tracking ID is required.');
   }
 
+  // First get the current order to know its status
+  const currentOrder = await OrderModel.findById(req.params.id);
+  if (!currentOrder) throw new ApiError(404, 'Order not found.');
+
   const updated = await OrderModel.findByIdAndUpdate(
     req.params.id,
     {
@@ -225,7 +337,7 @@ export async function updateCourierInfo(req: Request, res: Response) {
         'courierInfo.trackingId': trackingId?.trim() ?? '',
         'courierInfo.trackingUrl': trackingUrl?.trim() ?? '',
       },
-      $push: { statusHistory: { status: '$status', timestamp: new Date(), note: `Courier info updated: ${courierName} - ${trackingId}` } },
+      $push: { statusHistory: { status: currentOrder.status, timestamp: new Date(), note: `Courier info updated: ${courierName} - ${trackingId}` } },
     },
     { new: true }
   ).populate('user', 'name email');
@@ -300,7 +412,7 @@ export async function requestReturn(req: Request, res: Response) {
 
 // GET /api/orders/:id/return — Get return status for an order (customer or admin).
 export async function getReturnStatus(req: Request, res: Response) {
-  const order = await OrderModel.findById(req.params.id).select('returnRequest');
+  const order = await OrderModel.findById(req.params.id).select('returnRequest user');
   if (!order) throw new ApiError(404, 'Order not found.');
   if (String(order.user) !== String(req.user!._id) && req.user!.role !== 'ADMIN') {
     throw new ApiError(403, 'Not allowed.');
@@ -336,9 +448,21 @@ export async function listReturns(req: Request, res: Response) {
   res.json({ success: true, data: cursorPage(rows, total, page, limit, sort, filter) });
 }
 
+// Return state machine - enforces valid transitions
+const RETURN_STATUS_FLOW: Record<ReturnStatus, ReturnStatus[]> = {
+  REQUESTED: ['APPROVED', 'REJECTED'],
+  APPROVED: ['PICKUP_SCHEDULED', 'REJECTED'],
+  PICKUP_SCHEDULED: ['PICKED_UP', 'REJECTED'],
+  PICKED_UP: ['RECEIVED', 'REJECTED'],
+  RECEIVED: ['REFUND_INITIATED', 'REJECTED'],
+  REFUND_INITIATED: ['REFUNDED'],
+  REFUNDED: [],
+  REJECTED: [],
+};
+
 // PUT /api/admin/returns/:id — Admin: update return status.
 export async function updateReturnStatus(req: Request, res: Response) {
-  const next = String(req.body.status).toUpperCase();
+  const next = String(req.body.status).toUpperCase() as ReturnStatus;
   const validStatuses = ['APPROVED', 'PICKUP_SCHEDULED', 'PICKED_UP', 'RECEIVED', 'REFUND_INITIATED', 'REFUNDED', 'REJECTED'];
   if (!validStatuses.includes(next)) throw new ApiError(400, 'Invalid return status.');
 
@@ -347,7 +471,28 @@ export async function updateReturnStatus(req: Request, res: Response) {
   const trackingId = String(req.body.trackingId ?? '').trim();
   const trackingUrl = String(req.body.trackingUrl ?? '').trim();
 
-  const returnDoc = await ReturnModel.findByIdAndUpdate(
+  const returnDoc = await ReturnModel.findById(req.params.id).populate('order').populate('user', 'name email');
+  if (!returnDoc) throw new ApiError(404, 'Return not found.');
+
+  // Enforce state transitions
+  const currentStatus = returnDoc.status as ReturnStatus;
+  const allowedNext = RETURN_STATUS_FLOW[currentStatus] ?? [];
+  if (!allowedNext.includes(next)) {
+    throw new ApiError(400, `Cannot transition return from ${currentStatus} to ${next}. Allowed: ${allowedNext.join(', ')}`);
+  }
+
+  // Additional validation: REFUNDED requires a completed refund
+  if (next === 'REFUNDED') {
+    if (!returnDoc.refund) {
+      throw new ApiError(400, 'Cannot mark as REFUNDED without an initiated refund.');
+    }
+    const refundDoc = await RefundModel.findById(returnDoc.refund);
+    if (!refundDoc || refundDoc.status !== 'COMPLETED') {
+      throw new ApiError(400, 'Cannot mark as REFUNDED until refund is completed.');
+    }
+  }
+
+  const updatedReturn = await ReturnModel.findByIdAndUpdate(
     req.params.id,
     {
       $set: {
@@ -362,17 +507,17 @@ export async function updateReturnStatus(req: Request, res: Response) {
     { new: true }
   ).populate('order').populate('user', 'name email');
 
-  if (!returnDoc) throw new ApiError(404, 'Return not found.');
+  if (!updatedReturn) throw new ApiError(404, 'Return not found.');
 
   // Update order's returnRequest
-  const order = await OrderModel.findById(returnDoc.order._id);
+  const order = await OrderModel.findById(updatedReturn.order._id);
   if (order) {
     const currentReturn = order.returnRequest;
     order.returnRequest = {
       requestedAt: currentReturn?.requestedAt,
       reason: currentReturn?.reason ?? '',
       pickupAddress: currentReturn?.pickupAddress,
-      status: next as any,
+      status: next,
       adminNotes,
       ...(courierName && { courierName }),
       ...(trackingId && { trackingId }),
@@ -383,20 +528,20 @@ export async function updateReturnStatus(req: Request, res: Response) {
   }
 
   // Notify customer
-  const user = await UserModel.findById(returnDoc.user).select('email name');
-  if (user?.email) {
-    void sendOrderStatusEmail(user.email, { ...order!.toObject(), status: next, shippingAddress: order!.shippingAddress });
+  const user = await UserModel.findById(updatedReturn.user._id).select('email name');
+  if (user?.email && order) {
+    void sendOrderStatusEmail(user.email, { ...order.toObject(), status: next, shippingAddress: order.shippingAddress });
   }
   const customerName = user?.name ?? 'Customer';
-  void notifyOrderStatusChange(returnDoc.order._id.toString(), `Return ${next}`, customerName);
+  void notifyOrderStatusChange(updatedReturn.order._id.toString(), `Return ${next}`, customerName);
 
-  res.json({ success: true, data: returnDoc, message: `Return ${next.toLowerCase()}.` });
+  res.json({ success: true, data: updatedReturn, message: `Return ${next.toLowerCase()}.` });
 }
 
 // POST /api/admin/returns/:id/refund — Admin: initiate refund for a return.
 export async function initiateRefund(req: Request, res: Response) {
   const { method, amount, upiId, bankAccount, bankIfsc, bankName, accountHolderName } = req.body as {
-    method: 'UPI' | 'BANK';
+    method: 'RAZORPAY' | 'UPI' | 'BANK';
     amount: number;
     upiId?: string;
     bankAccount?: string;
@@ -405,7 +550,7 @@ export async function initiateRefund(req: Request, res: Response) {
     accountHolderName?: string;
   };
 
-  if (!['UPI', 'BANK'].includes(method)) throw new ApiError(400, 'Invalid refund method.');
+  if (!['RAZORPAY', 'UPI', 'BANK'].includes(method)) throw new ApiError(400, 'Invalid refund method.');
   if (!amount || amount <= 0) throw new ApiError(400, 'Refund amount must be positive.');
   if (method === 'UPI' && !upiId?.trim()) throw new ApiError(400, 'UPI ID is required for UPI refund.');
   if (method === 'BANK' && (!bankAccount?.trim() || !bankIfsc?.trim() || !accountHolderName?.trim())) {
@@ -419,24 +564,79 @@ export async function initiateRefund(req: Request, res: Response) {
   }
   if (returnDoc.refund) throw new ApiError(400, 'Refund already initiated for this return.');
 
+  // Validate refund amount against order's refundable amount
+  const order = await OrderModel.findById(returnDoc.order._id);
+  if (!order) throw new ApiError(404, 'Associated order not found.');
+
+  // A refund can only return money the shop actually received. COD cash is
+  // treated as received once the return exists (returns follow delivery); an
+  // online order must have a captured payment.
+  const collected = order.paymentMethod === 'RAZORPAY'
+    ? (order.paymentStatus === 'PAID' ? order.total : 0)
+    : order.total;
+
+  // Never refund the same money twice: previous PENDING/COMPLETED refunds for
+  // this order reduce the remaining refundable balance.
+  const prior = await RefundModel.aggregate<{ total: number }>([
+    { $match: { order: order._id, status: { $in: ['PENDING', 'COMPLETED'] } } },
+    { $group: { _id: null, total: { $sum: '$amount' } } },
+  ]);
+  const alreadyRefunded = prior[0]?.total ?? 0;
+  const maxRefundable = Math.max(0, collected - alreadyRefunded);
+
+  if (collected === 0) {
+    throw new ApiError(400, 'Cannot initiate refund: no payment captured for this order.');
+  }
+  if (amount > maxRefundable) {
+    throw new ApiError(400, `Refund amount (₹${amount}) cannot exceed refundable amount (₹${maxRefundable}).`);
+  }
+  if (method === 'RAZORPAY' && !order.razorpayPaymentId) {
+    throw new ApiError(400, 'This order has no Razorpay payment reference. Use a manual UPI/BANK refund.');
+  }
+
   const encryption = getEncryptionService();
-  const encryptedFields = encryption.encryptFields({
-    upiId: upiId ?? '',
-    bankAccount: bankAccount ?? '',
-    bankIfsc: bankIfsc ?? '',
-    bankName: bankName ?? '',
-    accountHolderName: accountHolderName ?? '',
-  });
+  const encryptedFields = method === 'RAZORPAY'
+    ? { upiId: '', bankAccount: '', bankIfsc: '', bankName: '', accountHolderName: '' }
+    : encryption.encryptFields({
+      upiId: upiId ?? '',
+      bankAccount: bankAccount ?? '',
+      bankIfsc: bankIfsc ?? '',
+      bankName: bankName ?? '',
+      accountHolderName: accountHolderName ?? '',
+    });
 
   const refundDoc = await RefundModel.create({
     return: returnDoc._id,
     order: returnDoc.order._id,
     user: returnDoc.user,
+    kind: 'RETURN',
     amount,
     method,
+    razorpayPaymentId: method === 'RAZORPAY' ? order.razorpayPaymentId : '',
     ...encryptedFields,
     status: 'PENDING',
   });
+
+  // Automatic gateway refunds move money immediately; manual UPI/BANK payouts
+  // stay PENDING until an admin records the transfer.
+  if (method === 'RAZORPAY') {
+    try {
+      const result = await refundRazorpayPayment({
+        paymentId: order.razorpayPaymentId,
+        amount,
+        notes: { orderId: String(order._id), returnId: String(returnDoc._id), reason: 'return_refund' },
+      });
+      refundDoc.razorpayRefundId = result.id;
+      refundDoc.status = result.status === 'processed' ? 'COMPLETED' : 'PENDING';
+      if (refundDoc.status === 'COMPLETED') refundDoc.processedAt = new Date();
+      await refundDoc.save();
+    } catch (error) {
+      refundDoc.status = 'FAILED';
+      refundDoc.failureReason = error instanceof Error ? error.message.slice(0, 500) : 'Gateway refund failed';
+      await refundDoc.save();
+      throw new ApiError(502, 'Razorpay could not process the refund. The return stays open so you can retry.');
+    }
+  }
 
   // Update return with refund reference
   returnDoc.refund = refundDoc._id;
@@ -444,44 +644,63 @@ export async function initiateRefund(req: Request, res: Response) {
   returnDoc.statusHistory.push({ status: 'REFUND_INITIATED', timestamp: new Date(), note: `Refund initiated: ${method} ₹${amount}`, updatedBy: req.user!._id });
   await returnDoc.save();
 
-  // Update order
-  const order = await OrderModel.findById(returnDoc.order._id);
-  if (order) {
-    const currentReturn = order.returnRequest;
-    order.returnRequest = {
+  // Update order (re-fetch to get latest)
+  const updatedOrder = await OrderModel.findById(returnDoc.order._id);
+  if (updatedOrder) {
+    const currentReturn = updatedOrder.returnRequest;
+    updatedOrder.returnRequest = {
       requestedAt: currentReturn?.requestedAt,
       reason: currentReturn?.reason ?? '',
       pickupAddress: currentReturn?.pickupAddress,
       status: 'REFUND_INITIATED',
       adminNotes: currentReturn?.adminNotes ?? '',
     };
-    order.refund = {
+    updatedOrder.refund = {
       method,
       amount,
-      status: 'PENDING',
+      status: refundDoc.status,
       // Encrypted fields are stored but not exposed to client
       upiIdEncrypted: encryptedFields.upiId,
       bankAccountEncrypted: encryptedFields.bankAccount,
       bankIfscEncrypted: encryptedFields.bankIfsc,
       bankNameEncrypted: encryptedFields.bankName,
       accountHolderNameEncrypted: encryptedFields.accountHolderName,
+      razorpayRefundId: refundDoc.razorpayRefundId,
+      refund: refundDoc._id,
+      processedAt: refundDoc.processedAt ?? null,
+      processedBy: req.user!._id,
     };
-    addStatusHistory(order, order.status, `Refund initiated: ${method} ₹${amount}`, String(req.user!._id));
-    await order.save();
+    addStatusHistory(
+      updatedOrder,
+      updatedOrder.status,
+      method === 'RAZORPAY' && refundDoc.status === 'COMPLETED'
+        ? `Refund completed via Razorpay — ₹${amount}`
+        : `Refund initiated: ${method} ₹${amount}`,
+      String(req.user!._id)
+    );
+    await updatedOrder.save();
   }
 
   // Notify customer
   const user = await UserModel.findById(returnDoc.user).select('email name');
-  if (user?.email && order) {
-    void sendOrderStatusEmail(user.email, { ...order.toObject(), status: 'REFUND_INITIATED', shippingAddress: order.shippingAddress });
+  if (user?.email && updatedOrder) {
+    void sendOrderStatusEmail(user.email, { ...updatedOrder.toObject(), status: 'REFUND_INITIATED', shippingAddress: updatedOrder.shippingAddress });
   }
   const customerName = user?.name ?? 'Customer';
   void notifyOrderStatusChange(returnDoc.order._id.toString(), `Refund Initiated: ${method} ₹${amount}`, customerName);
 
-  res.status(201).json({ success: true, data: refundDoc, message: 'Refund initiated.' });
+  res.status(201).json({
+    success: true,
+    data: refundDoc,
+    message: method === 'RAZORPAY'
+      ? (refundDoc.status === 'COMPLETED'
+        ? 'Refund completed to the original payment method.'
+        : 'Refund submitted to Razorpay and is being processed.')
+      : 'Refund initiated. Record the transfer once paid.',
+  });
 }
 
-// PUT /api/admin/refunds/:id — Admin: mark refund as completed.
+// PUT /api/admin/refunds/:id — Admin: mark a manual refund as completed.
 export async function completeRefund(req: Request, res: Response) {
   const refundDoc = await RefundModel.findByIdAndUpdate(
     req.params.id,
@@ -498,22 +717,29 @@ export async function completeRefund(req: Request, res: Response) {
 
   if (!refundDoc) throw new ApiError(404, 'Refund not found.');
 
-  // Update return
-  const returnDoc = await ReturnModel.findByIdAndUpdate(
-    refundDoc.return._id,
-    { $set: { status: 'REFUNDED' }, $push: { statusHistory: { status: 'REFUNDED', timestamp: new Date(), note: 'Refund completed', updatedBy: req.user!._id } } },
-    { new: true }
-  );
+  // Get the order first to know its current status
+  const orderDoc = await OrderModel.findById(refundDoc.order._id);
+  if (!orderDoc) throw new ApiError(404, 'Order not found.');
 
-  // Update order
-  const order = await OrderModel.findByIdAndUpdate(
-    refundDoc.order._id,
-    {
-      $set: { 'refund.status': 'COMPLETED', 'refund.processedAt': new Date(), 'refund.processedBy': req.user!._id, 'returnRequest.status': 'REFUNDED' },
-      $push: { statusHistory: { status: '$status', timestamp: new Date(), note: 'Refund completed', updatedBy: req.user!._id } },
-    },
-    { new: true }
-  );
+  // Update return (cancellation refunds have no physical return)
+  if (refundDoc.return) {
+    const returnId = (refundDoc.return as any)._id ?? refundDoc.return;
+    await ReturnModel.findByIdAndUpdate(
+      returnId,
+      { $set: { status: 'REFUNDED' }, $push: { statusHistory: { status: 'REFUNDED', timestamp: new Date(), note: 'Refund completed', updatedBy: req.user!._id } } },
+      { new: true }
+    );
+  }
+
+  // Update order - use actual status instead of '$status'
+  const orderUpdate: Record<string, unknown> = {
+    $set: { 'refund.status': 'COMPLETED', 'refund.processedAt': new Date(), 'refund.processedBy': req.user!._id },
+    $push: { statusHistory: { status: orderDoc.status, timestamp: new Date(), note: 'Refund completed', updatedBy: req.user!._id } },
+  };
+  if (refundDoc.return) {
+    (orderUpdate.$set as Record<string, unknown>)['returnRequest.status'] = 'REFUNDED';
+  }
+  const order = await OrderModel.findByIdAndUpdate(refundDoc.order._id, orderUpdate, { new: true });
 
   // Notify customer
   const user = await UserModel.findById(refundDoc.user).select('email');
@@ -552,24 +778,26 @@ export async function listRefunds(req: Request, res: Response) {
 // GET /api/orders/:id/track — Customer: get tracking info for order.
 export async function getOrderTracking(req: Request, res: Response) {
   const order = await OrderModel.findById(req.params.id)
-    .select('status courierInfo statusHistory shippingAddress items total createdAt returnRequest refund')
+    .select('status courierInfo statusHistory shippingAddress items total createdAt returnRequest refund paymentMethod paymentStatus paymentChannel shipment expectedDeliveryDate')
     .populate('user', 'name email');
   if (!order) throw new ApiError(404, 'Order not found.');
   if (String(order.user._id) !== String(req.user!._id) && req.user!.role !== 'ADMIN') {
     throw new ApiError(403, 'Not allowed.');
   }
 
-  // Build tracking URL if tracking ID exists
-  // TODO: move courier URL mapping to config/database
-  let trackingUrl = order.courierInfo.trackingUrl;
+  const shipment = order.shipment ? await ShipmentModel.findById(order.shipment) : null;
+  const shipmentView = shipment ? shipmentSummary(shipment) : null;
+
+  // Prefer the carrier's own tracking page, then a known fallback by name.
+  let trackingUrl = shipment?.trackingUrl || order.courierInfo.trackingUrl;
   if (!trackingUrl && order.courierInfo.trackingId) {
     const courier = order.courierInfo.name.toLowerCase();
     if (courier.includes('delhivery')) {
-      trackingUrl = `https://track.delhivery.com/api/v1/packages/${encodeURIComponent(order.courierInfo.trackingId)}`;
+      trackingUrl = `https://www.delhivery.com/track/package/${encodeURIComponent(order.courierInfo.trackingId)}`;
     } else if (courier.includes('ekart')) {
-      trackingUrl = `https://tracking.ekartlogistics.com/${encodeURIComponent(order.courierInfo.trackingId)}`;
-    } else if (courier.includes('bluedart')) {
-      trackingUrl = `https://www.bluedart.com/waybill/waybillresults.asp?waybill=${encodeURIComponent(order.courierInfo.trackingId)}`;
+      trackingUrl = `https://ekartlogistics.com/track/${encodeURIComponent(order.courierInfo.trackingId)}`;
+    } else if (courier.includes('bluedart') || courier.includes('blue dart')) {
+      trackingUrl = `https://www.bluedart.com/tracking?trackFor=0&trackNo=${encodeURIComponent(order.courierInfo.trackingId)}`;
     }
   }
 
@@ -579,6 +807,11 @@ export async function getOrderTracking(req: Request, res: Response) {
     statusHistory: order.statusHistory,
     courier: order.courierInfo,
     trackingUrl,
+    shipment: shipmentView,
+    expectedDeliveryDate: shipment?.estimatedDeliveryDate ?? order.expectedDeliveryDate ?? null,
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    paymentChannel: order.paymentChannel,
     shippingAddress: order.shippingAddress,
     items: order.items,
     total: order.total,

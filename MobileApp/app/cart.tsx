@@ -1,8 +1,7 @@
-import { FlatList, Image, Linking, Pressable, StyleSheet, View } from "react-native";
-import { useState } from 'react';
+import { FlatList, Image, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "@/components/ui/Typography";
 import { useRouter } from "expo-router";
-import { formatINR, STOREFRONT_URL } from "@/lib/api";
+import { formatINR } from "@/lib/api";
 import { QuantitySelector } from '@/components/ui/QuantitySelector';
 import { imageUrl } from '@shared/images';
 import { unitPriceForQty } from '@shared/pricing';
@@ -13,7 +12,6 @@ import { Footer } from "@/components/ui/Footer";
 export default function CartScreen() {
   const router = useRouter();
   const { lines, total, remove, update } = useCart();
-  const [error, setError] = useState('');
 
   if (lines.length === 0) {
     return (
@@ -63,18 +61,13 @@ export default function CartScreen() {
         </View>
         <Pressable
           style={styles.button}
-          onPress={async () => {
-            try {
-              const url = new URL('/checkout', STOREFRONT_URL);
-              url.searchParams.set('mobileCart', JSON.stringify(lines.map((line) => ({ productId: line.product.id, quantity: line.quantity }))));
-              await Linking.openURL(url.toString());
-            } catch { setError('Online checkout could not be opened. Please try again.'); }
-          }}
+          onPress={() => router.push("/checkout")}
         >
-          <Text style={styles.buttonText}>Continue to secure checkout</Text>
+          <Text style={styles.buttonText}>Continue to checkout</Text>
         </Pressable>
-        <Text style={styles.meta}>Sign in on the website to review delivery, apply a coupon and place your order. Your cart stays here.</Text>
-        {!!error && <Text accessibilityRole="alert" style={{ color: colors.red }}>{error}</Text>}
+        <Text style={styles.meta}>
+          Choose an address, pay by UPI, card, netbanking or cash on delivery. Delivery is checked for your pincode.
+        </Text>
       </View>
       <Footer />
     </View>

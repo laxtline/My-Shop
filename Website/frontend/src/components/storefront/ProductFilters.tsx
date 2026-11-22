@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Category } from "@shared/types";
 import { Button } from "@/components/ui/Button";
 import { CataloguePicker } from '@/components/ui/CataloguePicker';
@@ -30,6 +30,12 @@ export function ProductFilters({
   const router = useRouter();
   const [minPrice, setMinPrice] = useState(current.minPrice ?? "");
   const [maxPrice, setMaxPrice] = useState(current.maxPrice ?? "");
+
+  // Sync local state with URL props when they change (e.g., browser back/forward)
+  useEffect(() => {
+    setMinPrice(current.minPrice ?? "");
+    setMaxPrice(current.maxPrice ?? "");
+  }, [current.minPrice, current.maxPrice]);
 
   /** Push /products with one key changed; always reset to page 1. */
   const apply = (changes: Filters) => {

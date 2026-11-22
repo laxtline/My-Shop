@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import type { Order, Paginated, PaymentMethod, ShippingAddress } from "@shared/types";
+import type { Order, Paginated, PaymentChannel, PaymentMethod, ShippingAddress } from "@shared/types";
 import { apiFetch } from "@/lib/api";
 
 interface OrdersState {
@@ -9,6 +9,9 @@ interface OrdersState {
   currentStatus: "idle" | "loading" | "ready" | "error";
   placing: boolean;
   error: string | null;
+  // Pagination
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 const initialState: OrdersState = {
@@ -18,6 +21,8 @@ const initialState: OrdersState = {
   currentStatus: "idle",
   placing: false,
   error: null,
+  hasMore: false,
+  nextCursor: null,
 };
 
 export const placeOrder = createAsyncThunk(
@@ -26,6 +31,7 @@ export const placeOrder = createAsyncThunk(
     payload: {
       shippingAddress: ShippingAddress;
       paymentMethod?: PaymentMethod;
+      paymentChannel?: PaymentChannel;
       notes?: string;
       couponCode?: string;
     },
@@ -42,10 +48,35 @@ export const placeOrder = createAsyncThunk(
   }
 );
 
-export const fetchMyOrders = createAsyncThunk("orders/mine", async () => {
-  const data = await apiFetch<Paginated<Order>>("/api/orders");
-  return data.items;
-});
+export const fetchMyOrders = createAsyncThunk(
+  "orders/mine",
+  async (cursor: string | undefined, { rejectWithValue }) => {
+    try {
+      const url = cursor ? `/api/orders?cursor=${encodeURIComponent(cursor)}` : "/api/orders";
+      const data = await apiFetch<Paginated<Order>>(url);
+      return { items: data.items, nextCursor: data.nextCursor ?? null, hasMore: !!data.nextCursor };
+    } catch (err) {
+      return rejectWithValue(err instanceof Error ? err.message : "Failed to fetch orders");
+    }
+  }
+);
+
+export const fetchMoreOrders = createAsyncThunk(
+  "orders/more",
+  async (_, { getState, rejectWithValue }) => {
+    const { orders } = getState() as { orders: OrdersState };
+    if (!orders.nextCursor || orders.listStatus === "loading") {
+      return { items: [], nextCursor: null, hasMore: false };
+    }
+    try {
+      const url = `/api/orders?cursor=${encodeURIComponent(orders.nextCursor)}`;
+      const data = await apiFetch<Paginated<Order>>(url);
+      return { items: data.items, nextCursor: data.nextCursor ?? null, hasMore: !!data.nextCursor };
+    } catch (err) {
+      return rejectWithValue(err instanceof Error ? err.message : "Failed to fetch more orders");
+    }
+  }
+);
 
 export const fetchOrder = createAsyncThunk("orders/one", async (id: string) => {
   return apiFetch<Order>(`/api/orders/${id}`);
@@ -64,6 +95,8 @@ const ordersSlice = createSlice({
       state.listStatus = "idle";
       state.current = null;
       state.currentStatus = "idle";
+      state.hasMore = false;
+      state.nextCursor = null;
     },
     clearOrderError(state) {
       state.error = null;
@@ -85,15 +118,33 @@ const ordersSlice = createSlice({
         state.placing = false;
         state.error = (action.payload as string) ?? "Failed to place order";
       })
-      // my orders
+      // my orders (initial load)
       .addCase(fetchMyOrders.pending, (state) => {
         state.listStatus = "loading";
       })
       .addCase(fetchMyOrders.fulfilled, (state, action) => {
-        state.list = action.payload;
+        state.list = action.payload.items;
         state.listStatus = "ready";
+        state.hasMore = action.payload.hasMore;
+        state.nextCursor = action.payload.nextCursor;
       })
       .addCase(fetchMyOrders.rejected, (state) => {
+        state.listStatus = "error";
+        state.hasMore = false;
+        state.nextCursor = null;
+      })
+      // load more orders
+      .addCase(fetchMoreOrders.pending, (state) => {
+        state.listStatus = "loading";
+      })
+      .addCase(fetchMoreOrders.fulfilled, (state, action) => {
+        // Append new items to existing list
+        state.list = [...state.list, ...action.payload.items];
+        state.listStatus = "ready";
+        state.hasMore = action.payload.hasMore;
+        state.nextCursor = action.payload.nextCursor;
+      })
+      .addCase(fetchMoreOrders.rejected, (state) => {
         state.listStatus = "error";
       })
       // single order

@@ -61,7 +61,7 @@ const returnRequestSchema = new Schema(
 
 const refundSchema = new Schema(
   {
-    method: { type: String, enum: ['UPI', 'BANK'], default: null },
+    method: { type: String, enum: ['RAZORPAY', 'UPI', 'BANK'], default: null },
     // Encrypted fields - stored as base64 encrypted strings
     upiIdEncrypted: { type: String, default: '' },
     bankAccountEncrypted: { type: String, default: '' },
@@ -70,6 +70,8 @@ const refundSchema = new Schema(
     accountHolderNameEncrypted: { type: String, default: '' },
     amount: { type: Number, default: 0 },
     status: { type: String, enum: ['PENDING', 'COMPLETED', 'FAILED'], default: 'PENDING' },
+    razorpayRefundId: { type: String, default: '' },
+    refund: { type: Schema.Types.ObjectId, ref: 'Refund', default: null },
     processedAt: { type: Date, default: null },
     processedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
   },
@@ -83,9 +85,19 @@ const orderSchema = new Schema(
     shippingAddress: { type: shippingAddressSchema, required: true },
     paymentMethod: { type: String, enum: ['COD', 'RAZORPAY'], required: true, default: 'COD' },
     paymentStatus: { type: String, enum: ['PENDING', 'PAID', 'FAILED'], required: true, default: 'PENDING' },
+    /** Instrument behind the payment (UPI, card, netbanking, wallet or COD). */
+    paymentChannel: {
+      type: String,
+      enum: ['COD', 'UPI', 'CARD', 'NETBANKING', 'WALLET', 'UNKNOWN'],
+      default: 'UNKNOWN',
+    },
     // Razorpay references (set only for online payments).
     razorpayOrderId: { type: String, default: '' },
     razorpayPaymentId: { type: String, default: '' },
+    razorpayPaymentLinkId: { type: String, default: '' },
+    paidAt: { type: Date, default: null },
+    /** Set when cash is physically collected for a COD order. */
+    codCollectedAt: { type: Date, default: null },
     status: {
       type: String,
       enum: ['PLACED', 'CONFIRMED', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
@@ -103,6 +115,8 @@ const orderSchema = new Schema(
     notes: { type: String, default: '' },
     // New fields for tracking & returns
     courierInfo: { type: courierInfoSchema, default: {} },
+    shipment: { type: Schema.Types.ObjectId, ref: 'Shipment', default: null },
+    expectedDeliveryDate: { type: Date, default: null },
     statusHistory: { type: [statusHistorySchema], default: [] },
     returnRequest: { type: returnRequestSchema, default: {} },
     refund: { type: refundSchema, default: {} },
@@ -116,6 +130,8 @@ orderSchema.index({ status: 1, createdAt: -1, _id: -1 });
 orderSchema.index({ couponCode: 1, createdAt: -1 });
 orderSchema.index({ paymentStatus: 1, createdAt: -1 });
 orderSchema.index({ 'courierInfo.trackingId': 1 });
+orderSchema.index({ paymentChannel: 1, createdAt: -1 });
+orderSchema.index({ codCollectedAt: 1 });
 
 export type OrderDoc = InferSchemaType<typeof orderSchema>;
 

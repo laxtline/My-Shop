@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type {
   CouponValidation,
+  PaymentChannel,
   PaymentConfig,
   PaymentMethod,
   Product,
@@ -12,6 +13,7 @@ import type {
   ShippingAddress,
   User,
 } from "@shared/types";
+import type { ServiceabilityResult } from "@shared/shipping";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { fetchCart, updateCartItem, mergeMobileCart } from "@/store/cartSlice";
 import { placeOrder, clearOrderError } from "@/store/ordersSlice";
@@ -28,6 +30,12 @@ import { LoginDialog } from "@/components/auth/LoginDialog";
 
 const DELIVERY_FEE = 49;
 const FREE_DELIVERY_OVER = 5000;
+
+const ONLINE_METHODS: { value: PaymentChannel; label: string; icon: string }[] = [
+  { value: "UPI", label: "UPI", icon: "📱" },
+  { value: "CARD", label: "Card", icon: "💳" },
+  { value: "NETBANKING", label: "Netbanking", icon: "🏦" },
+];
 
 const EMPTY_ADDRESS: ShippingAddress = {
   fullName: "",
@@ -51,7 +59,11 @@ export function CheckoutView() {
   const [address, setAddress] = useState<ShippingAddress>(EMPTY_ADDRESS);
   const [notes, setNotes] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("COD");
+  const [channel, setChannel] = useState<PaymentChannel>("UPI");
   const [config, setConfig] = useState<PaymentConfig | null>(null);
+  const [serviceability, setServiceability] = useState<ServiceabilityResult | null>(null);
+  const [checkingPin, setCheckingPin] = useState(false);
+  const [pinNotice, setPinNotice] = useState<string | null>(null);
   const [paying, setPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [saveAddr, setSaveAddr] = useState(false);
@@ -69,24 +81,47 @@ export function CheckoutView() {
   const cartKey = JSON.stringify(cart?.items ?? []);
   const appliedCode = coupon?.code;
   const imported = useRef(false);
+  const [mobileCartError, setMobileCartError] = useState<string | null>(null);
+  const [hasMobileCart, setHasMobileCart] = useState(false);
+
+  // Derived line items (also needed by the serviceability effect below, so
+  // these are computed before any early return).
+  const lines = (cart?.items ?? [])
+    .map((it) => ({ product: it.product, quantity: it.quantity }))
+    .filter((l): l is { product: Product; quantity: number } => !!l.product && typeof l.product !== "string");
+  const itemsTotal = lines.reduce((sum, l) => sum + unitPriceForQty(l.product, l.quantity) * l.quantity, 0);
 
   useEffect(() => {
     const url = new URL(window.location.href);
     const input = url.searchParams.get('mobileCart');
-    if (!input || imported.current) return;
-    imported.current = true;
+    if (!input) return;
+    setHasMobileCart(true);
+    if (imported.current) return;
+
     try {
       if (input.length > 20000) throw new Error('Mobile cart is too large.');
       const items = JSON.parse(input);
       if (!Array.isArray(items)) throw new Error('Invalid mobile cart.');
+
       void dispatch(mergeMobileCart(items)).then((result) => {
         if (mergeMobileCart.fulfilled.match(result)) {
-          url.searchParams.delete('mobileCart'); window.history.replaceState(null, '', url);
+          imported.current = true;
+          url.searchParams.delete('mobileCart');
+          window.history.replaceState(null, '', url);
+          setMobileCartError(null);
           toast('Mobile cart transferred. Review your order and apply a coupon.');
+        } else if (mergeMobileCart.rejected.match(result)) {
+          // Import failed - allow retry, show error
+          setMobileCartError(result.payload as string || 'Could not transfer mobile cart.');
+          // If user not logged in, show login dialog
+          if (!user) setShowLogin(true);
         }
       });
-    } catch (error) { setPayError(error instanceof Error ? error.message : 'Could not transfer mobile cart.'); }
-  }, [dispatch, toast]);
+    } catch (error) {
+      setMobileCartError(error instanceof Error ? error.message : 'Could not transfer mobile cart.');
+      if (!user) setShowLogin(true);
+    }
+  }, [dispatch, toast, user]);
 
   useEffect(() => {
     if (!appliedCode || mutating) return;
@@ -147,8 +182,56 @@ export function CheckoutView() {
   useEffect(() => {
     apiFetch<PaymentConfig>("/api/payments/config")
       .then(setConfig)
-      .catch(() => setConfig({ razorpayEnabled: false, razorpayKeyId: "" }));
+      .catch(() => setConfig({
+        razorpayEnabled: false,
+        razorpayKeyId: "",
+        onlineMethods: [],
+        codEnabled: true,
+        codFee: 0,
+        currency: "INR",
+        paymentLinksEnabled: false,
+      }));
   }, []);
+
+  // Ask the server whether this pincode is deliverable and what COD costs.
+  // Debounced so typing a pincode does not fire a request per keystroke.
+  useEffect(() => {
+    const pincode = address.pincode.trim();
+    if (!/^[1-9]\d{5}$/.test(pincode)) {
+      setServiceability(null);
+      setPinNotice(null);
+      setCheckingPin(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setCheckingPin(true);
+      apiFetch<ServiceabilityResult>(
+        `/api/shipping/serviceability?pincode=${pincode}&itemsTotal=${Math.round(itemsTotal)}`
+      )
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          setServiceability(result);
+          setPinNotice(result.serviceable
+            ? (result.codAvailable ? null : "Cash on Delivery is unavailable here — please pay online.")
+            : (result.message ?? `We don't deliver to ${pincode} yet.`));
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          setServiceability(null);
+          setPinNotice(null);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setCheckingPin(false);
+        });
+    }, 400);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [address.pincode, itemsTotal]);
 
   // Prefill the buyer's name once we know who they are.
   useEffect(() => {
@@ -156,10 +239,6 @@ export function CheckoutView() {
   }, [user]);
 
   useEffect(() => () => void dispatch(clearOrderError()), [dispatch]);
-
-  const lines = (cart?.items ?? [])
-    .map((it) => ({ product: it.product, quantity: it.quantity }))
-    .filter((l): l is { product: Product; quantity: number } => !!l.product && typeof l.product !== "string");
 
   if (status === "loading" && !cart) {
     return (
@@ -169,7 +248,10 @@ export function CheckoutView() {
     );
   }
 
-  if (!lines.length) {
+  // If there's a mobile cart being imported, show loading/error state instead of empty cart
+  const isImportingMobileCart = hasMobileCart && !imported.current && status !== "loading";
+
+  if (!lines.length && !isImportingMobileCart) {
     return (
       <EmptyState
         icon="🛒"
@@ -184,10 +266,41 @@ export function CheckoutView() {
     );
   }
 
-  const itemsTotal = lines.reduce((sum, l) => sum + unitPriceForQty(l.product, l.quantity) * l.quantity, 0);
-  const deliveryFee = itemsTotal >= FREE_DELIVERY_OVER ? 0 : DELIVERY_FEE;
+  // Show mobile cart import state (loading or error with retry)
+  if (isImportingMobileCart) {
+    return (
+      <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-card text-center py-12">
+            {mobileCartError ? (
+              <>
+                <p className="text-red-600 font-medium">{mobileCartError}</p>
+                <p className="mt-2 text-sm text-slate-500">Please sign in to transfer your mobile cart.</p>
+                <Button className="mt-4" onClick={() => setShowLogin(true)}>
+                  Sign in to retry
+                </Button>
+              </>
+            ) : (
+              <>
+                <Spinner className="h-8 w-8 mx-auto" />
+                <p className="mt-2 text-sm text-slate-500">Transferring your mobile cart…</p>
+              </>
+            )}
+          </div>
+        </div>
+        <aside className="h-fit" />
+      </div>
+    );
+  }
+
+  const freshServiceability = serviceability && serviceability.pincode === address.pincode ? serviceability : null;
+  const deliveryFee = freshServiceability
+    ? freshServiceability.deliveryFee
+    : (itemsTotal >= FREE_DELIVERY_OVER ? 0 : DELIVERY_FEE);
+  const codFee = method === "COD" ? (freshServiceability?.codFee ?? config?.codFee ?? 0) : 0;
+  const codAvailable = (freshServiceability?.codAvailable ?? config?.codEnabled ?? true);
   const discount = coupon && validatedCart === cartKey ? Math.min(coupon.discount, itemsTotal) : 0;
-  const total = Math.max(0, itemsTotal + deliveryFee - discount);
+  const total = Math.max(0, itemsTotal + deliveryFee - discount + codFee);
 
   const set = (k: keyof ShippingAddress) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setAddress((a) => ({ ...a, [k]: e.target.value }));
@@ -225,7 +338,7 @@ export function CheckoutView() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (mutating || applyingCoupon || coupon && validatedCart !== cartKey) return;
+    if (mutating || applyingCoupon || (coupon && validatedCart !== cartKey)) return;
     setPayError(null);
 
     // If user is not logged in, show login dialog instead of placing order
@@ -234,9 +347,24 @@ export function CheckoutView() {
       return;
     }
 
+    if (freshServiceability && !freshServiceability.serviceable) {
+      setPayError(freshServiceability.message ?? `We don't deliver to ${address.pincode} yet.`);
+      return;
+    }
+    if (method === "COD" && !codAvailable) {
+      setPayError("Cash on Delivery is unavailable for this pincode. Please pay online.");
+      return;
+    }
+
     // 1) Create the order server-side (validates address, prices, stock).
     const result = await dispatch(
-      placeOrder({ shippingAddress: address, paymentMethod: method, notes, couponCode: coupon?.code })
+      placeOrder({
+        shippingAddress: address,
+        paymentMethod: method,
+        paymentChannel: method === "RAZORPAY" ? channel : "COD",
+        notes,
+        couponCode: coupon?.code,
+      })
     );
     if (!placeOrder.fulfilled.match(result)) return; // error surfaced via slice
     const order = result.payload;
@@ -269,6 +397,7 @@ export function CheckoutView() {
         brandName: brand.appName,
         themeColor: brand.themeColor,
         prefill: { name: address.fullName, email: user?.email, contact: address.phone },
+        preferredMethod: channel,
       });
       toast("Payment successful — order confirmed");
       router.push(`/orders/${order.id}`);
@@ -349,6 +478,19 @@ export function CheckoutView() {
             />
           </div>
 
+          {checkingPin && <p role="status" className="mt-2 text-xs text-slate-500">Checking delivery to {address.pincode}…</p>}
+          {!checkingPin && freshServiceability?.serviceable && (
+            <p className="mt-2 text-xs font-medium text-emerald-600">
+              ✓ Delivers to {freshServiceability.pincode} in {freshServiceability.estimatedDaysMin}–{freshServiceability.estimatedDaysMax} days
+              · {freshServiceability.deliveryFee === 0 ? "Free delivery" : `Delivery ${formatINR(freshServiceability.deliveryFee)}`}
+            </p>
+          )}
+          {!checkingPin && pinNotice && (
+            <p role="alert" className={`mt-2 text-xs font-medium ${freshServiceability?.serviceable ? "text-amber-600" : "text-red-600"}`}>
+              {pinNotice}
+            </p>
+          )}
+
           <label className="mt-3 flex items-center gap-2 text-sm text-slate-600">
             <input
               type="checkbox"
@@ -376,26 +518,56 @@ export function CheckoutView() {
           <h2 className="text-base font-semibold text-slate-800">Payment method</h2>
           <div className="mt-3 space-y-3">
             <PaymentOption
-              label="Cash on Delivery (COD)"
-              description="Pay in cash when your order arrives."
+              label={config && config.codFee > 0 ? `Cash on Delivery (COD) · +${formatINR(config.codFee)}` : "Cash on Delivery (COD)"}
+              description={codAvailable ? "Pay in cash when your order arrives." : "Not available for this pincode — please pay online."}
               selected={method === "COD"}
+              disabled={!codAvailable || config?.codEnabled === false}
               onSelect={() => setMethod("COD")}
             />
             {config?.razorpayEnabled ? (
-              <PaymentOption
-                label="Pay Online (UPI / Card / Netbanking)"
-                description="Secure payment via Razorpay."
-                selected={method === "RAZORPAY"}
-                onSelect={() => setMethod("RAZORPAY")}
-              />
+              <div
+                className={`rounded-xl border p-3 ${
+                  method === "RAZORPAY" ? "border-brand bg-brand-50" : "border-slate-200"
+                }`}
+              >
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="radio"
+                    name="payment-method"
+                    checked={method === "RAZORPAY"}
+                    onChange={() => setMethod("RAZORPAY")}
+                    className="mt-0.5 h-4 w-4 text-brand"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-slate-800">Pay Online</span>
+                    <span className="block text-xs text-slate-400">UPI, card or netbanking via Razorpay</span>
+                  </span>
+                </label>
+                {method === "RAZORPAY" && (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {ONLINE_METHODS.map((m) => (
+                      <button
+                        key={m.value}
+                        type="button"
+                        onClick={() => setChannel(m.value)}
+                        aria-pressed={channel === m.value}
+                        className={`rounded-lg border px-2 py-2 text-center text-xs font-medium transition ${
+                          channel === m.value
+                            ? "border-brand bg-white text-brand"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        }`}
+                      >
+                        <span className="block text-base">{m.icon}</span>
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
-              // Online payment is built end-to-end (see paymentController), but the
-              // gateway keys are intentionally not configured, so it stays switched
-              // off. Showing it as "coming soon" is honest: the option is visible
-              // without ever letting an order be placed through an inactive gateway.
               <PaymentOption
                 label="Pay Online (UPI / Card / Netbanking)"
-                description="Secure payment via UPI, card or netbanking."
+                description="Online payments are not configured for this shop yet."
                 selected={false}
                 disabled
                 onSelect={() => setOnlineNotice(true)}
@@ -403,10 +575,8 @@ export function CheckoutView() {
             )}
           </div>
           {onlineNotice && (
-            // aria-live so the message is announced when it appears, not silently
-            // rendered for sighted users only.
             <p aria-live="polite" className="mt-2 text-xs font-medium text-brand">
-              Coming soon — for now, please continue with Cash on Delivery.
+              Online payment is not available right now — please continue with Cash on Delivery.
             </p>
           )}
           {!config && <p className="mt-2 text-xs text-slate-400">Loading payment options…</p>}
@@ -464,6 +634,12 @@ export function CheckoutView() {
             <dt>Delivery</dt>
             <dd>{deliveryFee === 0 ? "FREE" : formatINR(deliveryFee)}</dd>
           </div>
+          {codFee > 0 && (
+            <div className="flex justify-between text-slate-600">
+              <dt>COD handling</dt>
+              <dd>{formatINR(codFee)}</dd>
+            </div>
+          )}
           {discount > 0 && (
             <div className="flex justify-between text-emerald-600">
               <dt>Discount</dt>
@@ -481,8 +657,11 @@ export function CheckoutView() {
         )}
 
         <Button type="submit" size="lg" fullWidth loading={placing || paying} className="mt-4"
-          disabled={!!mutating || applyingCoupon || !!(coupon && validatedCart !== cartKey) || lines.some((l) => l.quantity > l.product.stock || !l.product.isActive)}>
-          {method === "RAZORPAY" ? "Pay" : "Place order"} · {formatINR(total)}
+          disabled={!!mutating || applyingCoupon || checkingPin || !!(coupon && validatedCart !== cartKey)
+            || (!!freshServiceability && !freshServiceability.serviceable)
+            || (method === "COD" && (!codAvailable || config?.codEnabled === false))
+            || lines.some((l) => l.quantity > l.product.stock || !l.product.isActive)}>
+          {method === "RAZORPAY" ? "Pay online" : "Place order"} · {formatINR(total)}
         </Button>
         <Link href="/cart" className="mt-3 block text-center text-sm font-medium text-brand hover:underline">
           Back to cart

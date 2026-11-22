@@ -12,6 +12,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { OrderStatusBadge } from "./OrderStatusBadge";
 import { formatINR, PLACEHOLDER_IMAGE } from "@/lib/format";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { SHIPMENT_STATUS_LABELS as SHIPMENT_LABELS } from "@shared/shipping";
 
 const CANCELLABLE = ["PLACED", "CONFIRMED"];
 
@@ -109,6 +110,56 @@ function OrderDetail({ id }: { id: string }) {
         <StatusTimeline status={order.status} />
       )}
 
+      {order.expectedDeliveryDate && order.status !== "DELIVERED" && order.status !== "CANCELLED" && (
+        <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm font-medium text-brand">
+          Estimated delivery: {new Date(order.expectedDeliveryDate).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+        </p>
+      )}
+
+      {order.shipment && (
+        <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-card">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-800">Shipment</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {order.shipment.courierName || "Courier"} · {SHIPMENT_LABELS[order.shipment.status] ?? order.shipment.status}
+              </p>
+            </div>
+            {order.shipment.trackingUrl && (
+              <a
+                href={order.shipment.trackingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-medium text-brand hover:underline"
+              >
+                Track with courier →
+              </a>
+            )}
+          </div>
+          {order.shipment.awb && (
+            <p className="mt-2 text-xs text-slate-400">
+              AWB / tracking no: <span className="font-mono text-slate-600">{order.shipment.awb}</span>
+            </p>
+          )}
+          {order.shipment.events.length > 0 && (
+            <ol className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+              {order.shipment.events.slice(0, 6).map((event, i) => (
+                <li key={`${event.at}-${i}`} className="flex gap-3 text-sm">
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${i === 0 ? "bg-brand" : "bg-slate-300"}`} />
+                  <div>
+                    <p className="font-medium text-slate-700">{SHIPMENT_LABELS[event.status] ?? event.rawStatus}</p>
+                    <p className="text-xs text-slate-400">
+                      {new Date(event.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                      {event.location ? ` · ${event.location}` : ""}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
         <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-card">
           <h2 className="text-base font-semibold text-slate-800">Items</h2>
@@ -158,9 +209,11 @@ function OrderDetail({ id }: { id: string }) {
             </dl>
             <div className="mt-3 flex items-center gap-2 text-xs">
               <span className="text-slate-400">
-                {order.paymentMethod === "COD" ? "Cash on Delivery" : "Online payment"}
+                {order.paymentMethod === "COD"
+                  ? "Cash on Delivery"
+                  : CHANNEL_LABELS[order.paymentChannel ?? "UNKNOWN"] ?? "Online payment"}
               </span>
-              <PaymentBadge status={order.paymentStatus} />
+              <PaymentBadge status={order.paymentStatus} method={order.paymentMethod} orderStatus={order.status} />
             </div>
 
             {needsPayment && (
@@ -212,13 +265,23 @@ function OrderDetail({ id }: { id: string }) {
   );
 }
 
-function PaymentBadge({ status }: { status: string }) {
+const CHANNEL_LABELS: Record<string, string> = {
+  UPI: "Paid via UPI",
+  CARD: "Paid via card",
+  NETBANKING: "Paid via netbanking",
+  WALLET: "Paid via wallet",
+  COD: "Cash on Delivery",
+  UNKNOWN: "Online payment",
+};
+
+function PaymentBadge({ status, method, orderStatus }: { status: string; method: string; orderStatus: string }) {
   if (status === "PAID") return <Badge tone="emerald">Paid</Badge>;
   if (status === "FAILED") return <Badge tone="red">Payment failed</Badge>;
+  if (method === "COD" && orderStatus === "DELIVERED") return <Badge tone="amber">Cash due</Badge>;
   return <Badge tone="amber">Payment pending</Badge>;
 }
 
-const STEPS = ["PLACED", "CONFIRMED", "SHIPPED", "DELIVERED"] as const;
+const STEPS = ["PLACED", "CONFIRMED", "PACKED", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED"] as const;
 
 function StatusTimeline({ status }: { status: string }) {
   const activeIndex = STEPS.indexOf(status as (typeof STEPS)[number]);

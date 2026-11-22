@@ -43,6 +43,7 @@ export const categoryUpdateSchema: BodySchema = {
 export const orderCreateSchema: BodySchema = {
   shippingAddress: { type: 'object', required: true, label: 'Shipping address' },
   paymentMethod: { type: 'string', enum: ['COD', 'RAZORPAY'], label: 'Payment method' },
+  paymentChannel: { type: 'string', enum: ['COD', 'UPI', 'CARD', 'NETBANKING', 'WALLET'], label: 'Payment channel' },
   couponCode: { type: 'string', max: 40, label: 'Coupon code' },
   notes: { type: 'string', max: 500, label: 'Notes' },
 };
@@ -51,7 +52,7 @@ export const orderStatusSchema: BodySchema = {
   status: {
     type: 'string',
     required: true,
-    enum: ['PLACED', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED'],
+    enum: ['PLACED', 'CONFIRMED', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
     label: 'Status',
   },
 };
@@ -66,6 +67,7 @@ export const reviewSchema: BodySchema = {
 // --- Payments ---------------------------------------------------------------
 export const razorpayOrderSchema: BodySchema = {
   orderId: { type: 'string', required: true, label: 'Order id' },
+  preferredMethod: { type: 'string', enum: ['UPI', 'CARD', 'NETBANKING', 'WALLET'], label: 'Preferred method' },
 };
 
 export const razorpayVerifySchema: BodySchema = {
@@ -73,6 +75,44 @@ export const razorpayVerifySchema: BodySchema = {
   razorpayPaymentId: { type: 'string', required: true, label: 'Payment id' },
   razorpayOrderId: { type: 'string', required: true, label: 'Razorpay order id' },
   razorpaySignature: { type: 'string', required: true, label: 'Signature' },
+};
+
+// --- Shipping ---------------------------------------------------------------
+export const shipmentCreateSchema: BodySchema = {
+  courierCode: {
+    type: 'string',
+    enum: ['SHIPROCKET', 'DELHIVERY', 'EKART', 'BLUEDART', 'DTDC', 'XPRESSBEES', 'SHADOWFAX', 'INDIA_POST'],
+    label: 'Courier',
+  },
+  weight: { type: 'number', min: 0.1, max: 500, label: 'Weight (kg)' },
+  length: { type: 'number', min: 1, max: 500, label: 'Length (cm)' },
+  breadth: { type: 'number', min: 1, max: 500, label: 'Breadth (cm)' },
+  height: { type: 'number', min: 1, max: 500, label: 'Height (cm)' },
+  pickupDate: { type: 'string', max: 40, label: 'Pickup date' },
+  schedulePickup: { type: 'boolean', label: 'Schedule pickup' },
+};
+
+export const shippingSettingsSchema: BodySchema = {
+  originPincode: { type: 'string', pattern: /^[1-9]\d{5}$/, label: 'Origin pincode' },
+  originCity: { type: 'string', max: 80, label: 'Origin city' },
+  originState: { type: 'string', max: 80, label: 'Origin state' },
+  pickupLocationName: { type: 'string', max: 120, label: 'Pickup location' },
+  contactName: { type: 'string', max: 120, label: 'Contact name' },
+  contactPhone: { type: 'string', pattern: /^[6-9]\d{9}$/, label: 'Contact phone' },
+  addressLine1: { type: 'string', max: 200, label: 'Address line 1' },
+  addressLine2: { type: 'string', max: 200, label: 'Address line 2' },
+  baseDeliveryFee: { type: 'number', min: 0, max: 10000, label: 'Base delivery fee' },
+  freeDeliveryOver: { type: 'number', min: 0, max: 1000000, label: 'Free delivery threshold' },
+  codEnabled: { type: 'boolean', label: 'COD enabled' },
+  codFee: { type: 'number', min: 0, max: 5000, label: 'COD fee' },
+  serviceablePincodes: { type: 'array', max: 500, label: 'Serviceable pincodes' },
+  noCodPincodes: { type: 'array', max: 500, label: 'No-COD pincodes' },
+  localDaysMin: { type: 'integer', min: 0, max: 30, label: 'Local ETA min' },
+  localDaysMax: { type: 'integer', min: 0, max: 30, label: 'Local ETA max' },
+  regionalDaysMin: { type: 'integer', min: 0, max: 30, label: 'Regional ETA min' },
+  regionalDaysMax: { type: 'integer', min: 0, max: 30, label: 'Regional ETA max' },
+  nationalDaysMin: { type: 'integer', min: 0, max: 45, label: 'National ETA min' },
+  nationalDaysMax: { type: 'integer', min: 0, max: 45, label: 'National ETA max' },
 };
 
 // --- Cart / Wishlist --------------------------------------------------------

@@ -24,23 +24,60 @@ export default function HomeScreen() {
   const brand = useBrandReady();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pagination, setPagination] = useState<{
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    nextCursor: string | null;
+  } | null>(null);
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const data = await apiFetch<Paginated<Product>>("/api/products?limit=20&sort=newest");
-      setProducts(data.items);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load products");
-    } finally {
-      setLoading(false);
+  const loadProducts = useCallback(
+    async (page = 1, cursor?: string, isRefresh = false) => {
+      if (!isRefresh) setLoading(true);
+      setError(null);
+      try {
+        let url = `/api/products?limit=20&sort=newest&page=${page}`;
+        if (cursor) url += `&cursor=${cursor}`;
+        const data = await apiFetch<Paginated<Product>>(url);
+        if (page === 1 || isRefresh) {
+          setProducts(data.items);
+        } else {
+          setProducts((prev) => [...prev, ...data.items]);
+        }
+        setPagination({
+          page: data.page,
+          limit: data.limit,
+          total: data.total,
+          totalPages: data.totalPages,
+          nextCursor: data.nextCursor ?? null,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load products");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    []
+  );
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadProducts(1, undefined, true);
+  };
+
+  const onEndReached = () => {
+    if (pagination && pagination.page < pagination.totalPages && !loading && !refreshing) {
+      loadProducts(pagination.page + 1, pagination.nextCursor ?? undefined);
     }
-  }, []);
+  };
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadProducts();
+  }, [loadProducts]);
 
   // Show branded splash/loading screen while brand or products are loading
   if (brandLoading || loading) {
@@ -75,7 +112,9 @@ export default function HomeScreen() {
         numColumns={2}
         contentContainerStyle={{ padding: spacing.sm, paddingBottom: spacing.xl }}
         columnWrapperStyle={{ gap: spacing.sm }}
-        refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.5}
         ListHeaderComponent={
           <View style={styles.hero}>
             <Text style={styles.heroTitle}>{brand.tagline}</Text>
@@ -84,7 +123,15 @@ export default function HomeScreen() {
         }
         renderItem={({ item }) => <ProductCard product={item} />}
         ItemSeparatorComponent={() => <View style={{ height: spacing.sm }} />}
-        ListFooterComponent={<Footer />}
+        ListFooterComponent={
+          loading && products.length > 0 ? (
+            <View style={styles.loadingFooter}>
+              <ActivityIndicator size="small" color={colors.brand} />
+            </View>
+          ) : (
+            <Footer />
+          )
+        }
       />
     </View>
   );
@@ -159,4 +206,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: colors.textMuted,
   },
+  loadingFooter: { padding: spacing.lg, alignItems: "center" },
 });

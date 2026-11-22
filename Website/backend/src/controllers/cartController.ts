@@ -15,13 +15,45 @@ async function populatedCart(userId: string) {
   return CartModel.findOne({ user: userId }).populate('items.product');
 }
 
-/** Idempotent handoff from the mobile local cart; prices are never accepted. */
-export async function mergeCart(req: Request, res: Response) {
-  const incoming = req.body?.items;
-  if (!Array.isArray(incoming) || !incoming.length || incoming.length > MAX_CART_LINES || incoming.some((line) =>
+interface MobileCartLine {
+  productId: string;
+  quantity: number;
+}
+
+/** Validate the untrusted mobile cart payload; prices are never accepted. */
+function parseMobileCart(raw: unknown): MobileCartLine[] {
+  if (!Array.isArray(raw) || !raw.length || raw.length > MAX_CART_LINES || raw.some((line) =>
     !line || typeof line.productId !== 'string' || !mongoose.Types.ObjectId.isValid(line.productId) ||
     !Number.isSafeInteger(line.quantity) || line.quantity < 1)) throw new ApiError(400, 'Invalid mobile cart.');
-  if (new Set(incoming.map((line) => line.productId)).size !== incoming.length) throw new ApiError(400, 'Duplicate products in mobile cart.');
+  if (new Set(raw.map((line) => line.productId)).size !== raw.length) throw new ApiError(400, 'Duplicate products in mobile cart.');
+  return raw as MobileCartLine[];
+}
+
+/** Replace the server cart with the phone's cart (used at checkout). */
+export async function replaceCart(req: Request, res: Response) {
+  const incoming = parseMobileCart(req.body?.items);
+  const userId = String(req.user!._id);
+  await mongoose.connection.transaction(async (session) => {
+    const products = await ProductModel.find({ _id: { $in: incoming.map((line) => line.productId) } })
+      .select('stock isActive title').session(session);
+    const byId = new Map(products.map((p) => [String(p._id), p]));
+    let cart = await CartModel.findOne({ user: userId }).session(session);
+    if (!cart) [cart] = await CartModel.create([{ user: userId, items: [] }], { session });
+    cart.set('items', incoming.map((line) => {
+      const product = byId.get(line.productId);
+      if (!product?.isActive) throw new ApiError(400, 'A cart product is no longer available.');
+      if (line.quantity > product.stock) throw new ApiError(400, `Only ${product.stock} left of "${product.title}".`);
+      return { product: line.productId, quantity: line.quantity };
+    }));
+    cart.lastUpdatedAt = new Date();
+    await cart.save({ session });
+  });
+  res.json({ success: true, data: await populatedCart(userId) });
+}
+
+/** Idempotent handoff from the mobile local cart; prices are never accepted. */
+export async function mergeCart(req: Request, res: Response) {
+  const incoming = parseMobileCart(req.body?.items);
   const userId = String(req.user!._id);
   await mongoose.connection.transaction(async (session) => {
     const products = await ProductModel.find({ _id: { $in: incoming.map((line) => line.productId) } }).select('stock isActive title').session(session);

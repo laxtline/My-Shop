@@ -92,10 +92,12 @@ export async function payForOrder(params: {
   brandName: string;
   themeColor?: string;
   prefill?: { name?: string; email?: string; contact?: string };
+  /** Instrument the customer picked on the storefront (informational). */
+  preferredMethod?: string;
 }): Promise<Order> {
   const info = await apiFetch<RazorpayOrderInfo>("/api/payments/razorpay/order", {
     method: "POST",
-    body: JSON.stringify({ orderId: params.orderId }),
+    body: JSON.stringify({ orderId: params.orderId, preferredMethod: params.preferredMethod }),
   });
 
   const result = await openRazorpayCheckout({

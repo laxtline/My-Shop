@@ -81,7 +81,7 @@ function LoginOptions() {
             <img src={brand.logoUrl} alt={`${brand.appName} logo`} className={styles.logo} />
           </div>
           <p className={styles.brandName}>{brand.appName}</p>
-          <h1 className={styles.heading}>Welcome Back!</h1>
+          <h1 className={styles.heading}>Access your account</h1>
           <p className={styles.subtitle}>Login to continue to our store</p>
 
           {user ? (

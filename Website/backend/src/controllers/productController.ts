@@ -6,7 +6,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { getPageParams, paginate } from '../utils/pagination.js';
 import { slugify } from '../utils/slugify.js';
 import { cursorFilter, cursorPage, type CursorSort } from '../utils/pagination.js';
-import { isImageKitUrl } from '@shared/images.js';
+import { isValidProductImageUrl } from '@shared/images.js';
 
 // TODO: move this to a shared constants file
 export const SORT_MAP = {
@@ -150,8 +150,8 @@ export async function updateProduct(req: Request, res: Response) {
 
 function validateImages(images: unknown, existing: string[] = []) {
   if (!Array.isArray(images) || images.length > 20 || images.some((url) => typeof url !== 'string' ||
-    url.length > 2000 || !isImageKitUrl(url) && !existing.includes(url))) {
-    throw new ApiError(400, 'Provide up to 20 valid HTTPS ImageKit image URLs (ik.imagekit.io).');
+    url.length > 2000 || !isValidProductImageUrl(url) && !existing.includes(url))) {
+    throw new ApiError(400, 'Provide up to 20 valid image URLs (ImageKit or uploaded images).');
   }
 }
 

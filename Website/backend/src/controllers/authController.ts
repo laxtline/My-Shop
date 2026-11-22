@@ -55,7 +55,7 @@ export async function googleLogin(req: Request, res: Response) {
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken: credential,
-      audience: env.googleClientId,
+      audience: [env.googleClientId, ...env.googleMobileClientIds],
     });
     payload = ticket.getPayload();
   } catch {

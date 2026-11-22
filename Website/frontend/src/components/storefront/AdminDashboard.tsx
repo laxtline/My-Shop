@@ -90,6 +90,19 @@ function Dashboard() {
     }
   };
 
+  const collectCod = async (order: Order) => {
+    if (!confirm(`Record cash of ${formatINR(order.total)} collected for order #${order.id.slice(-6).toUpperCase()}?`)) return;
+    setBusyId(order.id);
+    try {
+      await apiFetch(`/api/orders/${order.id}/cod-collected`, { method: "PATCH" });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to record cash collection");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-900">Admin</h1>
@@ -149,25 +162,47 @@ function Dashboard() {
                     <p className="mt-1 text-sm text-slate-500">
                       {buyer?.name ?? "User"} · {placed} · {count} item{count === 1 ? "" : "s"} ·{" "}
                       <span className="font-semibold text-slate-700">{formatINR(order.total)}</span>
+                      {" · "}
+                      <span className={order.paymentStatus === "PAID" ? "text-emerald-600" : "text-amber-600"}>
+                        {order.paymentMethod === "COD" ? "COD" : "Online"} · {order.paymentStatus.toLowerCase()}
+                      </span>
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {busyId === order.id ? (
                       <Spinner className="h-5 w-5" />
-                    ) : NEXT_STATUS[order.status].length === 0 ? (
-                      <span className="text-xs text-slate-400">No further action</span>
                     ) : (
-                      NEXT_STATUS[order.status].map((next) => (
-                        <Button
-                          key={next}
-                          size="sm"
-                          variant={next === "CANCELLED" ? "danger" : "primary"}
-                          onClick={() => advance(order, next)}
-                        >
-                          Mark {next.charAt(0) + next.slice(1).toLowerCase()}
-                        </Button>
-                      ))
+                      <>
+                        {!["SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"].includes(order.status) &&
+                          (order.paymentMethod === "COD" || order.paymentStatus === "PAID") && (
+                            <Link
+                              href={`/admin/shipments?order=${order.id}`}
+                              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              Ship
+                            </Link>
+                          )}
+                        {order.paymentMethod === "COD" && order.paymentStatus !== "PAID" && order.status === "DELIVERED" && (
+                          <Button size="sm" variant="outline" onClick={() => collectCod(order)}>
+                            Record cash
+                          </Button>
+                        )}
+                        {NEXT_STATUS[order.status].length === 0 ? (
+                          <span className="text-xs text-slate-400">No further action</span>
+                        ) : (
+                          NEXT_STATUS[order.status].map((next) => (
+                            <Button
+                              key={next}
+                              size="sm"
+                              variant={next === "CANCELLED" ? "danger" : "primary"}
+                              onClick={() => advance(order, next)}
+                            >
+                              Mark {next.charAt(0) + next.slice(1).toLowerCase()}
+                            </Button>
+                          ))
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

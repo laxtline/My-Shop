@@ -1,5 +1,7 @@
-// Shared API contracts and domain types used by Website, AndroidApp and iOSApp.
+// Shared API contracts and domain types used by Website, MobileApp and iOSApp.
 // This is the single source of truth — do not redefine these in any app.
+
+import type { CourierCode, ShipmentEvent, ShipmentStatus } from '../shipping';
 
 export type Role = 'ADMIN' | 'USER';
 
@@ -245,6 +247,11 @@ export type ProductSort =
 
 export type PaymentMethod = 'COD' | 'RAZORPAY';
 export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED';
+/**
+ * The instrument behind a payment. COD is its own channel; online payments are
+ * captured through Razorpay as UPI, card, netbanking or wallet.
+ */
+export type PaymentChannel = 'COD' | 'UPI' | 'CARD' | 'NETBANKING' | 'WALLET' | 'UNKNOWN';
 
 // Order lifecycle. Admin advances the status; users may cancel while PLACED/CONFIRMED.
 export type OrderStatus =
@@ -266,6 +273,21 @@ export interface ShippingAddress {
   pincode: string;
 }
 
+/** Customer-visible snapshot of the carrier shipment for an order. */
+export interface ShipmentSummary {
+  id: string;
+  status: ShipmentStatus;
+  provider: 'SHIPROCKET' | 'DELHIVERY' | 'MANUAL';
+  courierCode: CourierCode | null;
+  courierName: string;
+  awb: string;
+  trackingUrl: string;
+  labelUrl?: string;
+  estimatedDeliveryDate?: string | null;
+  events: ShipmentEvent[];
+  updatedAt?: string;
+}
+
 // A line item snapshot — title/price are frozen at order time for history integrity.
 export interface OrderItem {
   product: string; // product id (may be null if later deleted)
@@ -284,8 +306,12 @@ export interface Order {
   shippingAddress: ShippingAddress;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  paymentChannel?: PaymentChannel;
   razorpayOrderId?: string;
   razorpayPaymentId?: string;
+  paidAt?: string | null;
+  /** Set when the delivery agent collects cash for a COD order. */
+  codCollectedAt?: string | null;
   status: OrderStatus;
   itemsTotal: number;
   deliveryFee: number;
@@ -299,6 +325,9 @@ export interface Order {
     trackingId: string;
     trackingUrl: string;
   };
+  /** Live carrier shipment attached to this order, when one was created. */
+  shipment?: ShipmentSummary | null;
+  expectedDeliveryDate?: string | null;
   statusHistory?: Array<{
     status: OrderStatus;
     timestamp: string;
@@ -312,9 +341,10 @@ export interface Order {
     adminNotes?: string;
   };
   refund?: {
-    method?: 'UPI' | 'BANK';
+    method?: 'RAZORPAY' | 'UPI' | 'BANK';
     amount: number;
     status: 'PENDING' | 'COMPLETED' | 'FAILED';
+    razorpayRefundId?: string;
   };
   createdAt?: string;
   updatedAt?: string;
@@ -363,11 +393,14 @@ export interface Return {
 
 export interface Refund {
   id: string;
-  return: string;
+  return?: string | null;
   order: string;
   user: string;
+  kind?: 'RETURN' | 'CANCELLATION';
+  reason?: string;
   amount: number;
-  method: 'UPI' | 'BANK';
+  method: 'RAZORPAY' | 'UPI' | 'BANK';
+  razorpayRefundId?: string;
   // Encrypted fields (not exposed to client)
   status: 'PENDING' | 'COMPLETED' | 'FAILED';
   processedAt?: string;
@@ -392,6 +425,11 @@ export interface OrderTracking {
     trackingUrl: string;
   };
   trackingUrl?: string;
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  paymentChannel?: PaymentChannel;
+  shipment?: ShipmentSummary | null;
+  expectedDeliveryDate?: string | null;
   shippingAddress: ShippingAddress;
   items: OrderItem[];
   total: number;
@@ -404,7 +442,7 @@ export interface OrderTracking {
     adminNotes?: string;
   };
   refund?: {
-    method?: 'UPI' | 'BANK';
+    method?: 'RAZORPAY' | 'UPI' | 'BANK';
     amount: number;
     status: 'PENDING' | 'COMPLETED' | 'FAILED';
   };
@@ -418,6 +456,33 @@ export interface OrderTracking {
 export interface PaymentConfig {
   razorpayEnabled: boolean;
   razorpayKeyId: string; // publishable key id (safe to expose); "" when disabled
+  /** Online instruments enabled by the shop (always via Razorpay). */
+  onlineMethods: PaymentChannel[];
+  codEnabled: boolean;
+  codFee: number;
+  currency: 'INR';
+  /** True when the shop can create hosted Razorpay payment links (mobile). */
+  paymentLinksEnabled: boolean;
+}
+
+// Returned while polling a payment after a mobile/hosted checkout.
+export interface PaymentStatusResult {
+  orderId: string;
+  paymentStatus: PaymentStatus;
+  paymentMethod: PaymentMethod;
+  paymentChannel?: PaymentChannel;
+  paidAt?: string | null;
+  total: number;
+}
+
+// Hosted Razorpay payment link (used by the mobile app, where the Checkout
+// JavaScript SDK is not available).
+export interface RazorpayPaymentLink {
+  shortUrl: string;
+  orderId: string;
+  amount: number;
+  currency: string;
+  expiresAt?: string | null;
 }
 
 // Returned when a Razorpay order is created for one of our orders.
@@ -427,4 +492,59 @@ export interface RazorpayOrderInfo {
   amount: number; // in paise
   currency: string;
   orderId: string; // our order id
+  preferredMethod?: PaymentChannel;
+  paymentStatus: PaymentStatus;
+}
+
+// ---------------------------------------------------------------------------
+// Shipments / carrier integration (admin)
+// ---------------------------------------------------------------------------
+
+export interface AdminShipment {
+  id: string;
+  order: string;
+  orderNumber?: string;
+  provider: 'SHIPROCKET' | 'DELHIVERY' | 'MANUAL';
+  providerOrderId: string;
+  providerShipmentId: string;
+  status: ShipmentStatus;
+  courierCode: CourierCode | null;
+  courierName: string;
+  awb: string;
+  trackingUrl: string;
+  labelUrl: string;
+  manifestUrl: string;
+  weight: number;
+  length: number;
+  breadth: number;
+  height: number;
+  codAmount: number;
+  charge: number;
+  pickupScheduledAt?: string | null;
+  estimatedDeliveryDate?: string | null;
+  deliveredAt?: string | null;
+  events: ShipmentEvent[];
+  warnings?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateShipmentInput {
+  /** Preferred courier. Omit to let the aggregator pick the cheapest option. */
+  courierCode?: CourierCode;
+  weight?: number;
+  length?: number;
+  breadth?: number;
+  height?: number;
+  pickupDate?: string;
+  /** Ask the carrier to schedule a pickup immediately after AWB assignment. */
+  schedulePickup?: boolean;
+}
+
+export interface AdminShipmentList {
+  shipments: AdminShipment[];
+  counts: Partial<Record<ShipmentStatus, number>>;
+  total: number;
+  page: number;
+  totalPages: number;
 }

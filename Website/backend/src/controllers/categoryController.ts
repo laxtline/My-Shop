@@ -4,7 +4,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { slugify } from '../utils/slugify.js';
 import { ProductModel } from '../models/Product.js';
 import { cursorFilter, cursorPage, getPageParams } from '../utils/pagination.js';
-import { isImageKitUrl } from '@shared/images.js';
+import { isValidProductImageUrl } from '@shared/images.js';
 import { Types } from 'mongoose';
 
 // GET /api/categories - public. All categories ordered by `order`
@@ -42,7 +42,7 @@ export async function getCategory(req: Request, res: Response) {
 export async function createCategory(req: Request, res: Response) {
   const { name, image, parentCategory, order } = req.body ?? {};
   if (!name || typeof name !== 'string') throw new ApiError(400, 'Category name is required.');
-  if (image && !isImageKitUrl(image)) throw new ApiError(400, 'Use a valid HTTPS ImageKit image URL.');
+  if (image && !isValidProductImageUrl(image)) throw new ApiError(400, 'Use a valid image URL (ImageKit or uploaded image).');
   if (parentCategory && !await CategoryModel.exists({ _id: parentCategory })) throw new ApiError(400, 'Parent category does not exist.');
 
   const slug = slugify(name);
@@ -66,7 +66,7 @@ export async function updateCategory(req: Request, res: Response) {
   if (!category) throw new ApiError(404, 'Category not found.');
 
   const { name, image, parentCategory, order } = req.body ?? {};
-  if (image && image !== category.image && !isImageKitUrl(image)) throw new ApiError(400, 'Use a valid HTTPS ImageKit image URL.');
+  if (image && image !== category.image && !isValidProductImageUrl(image)) throw new ApiError(400, 'Use a valid image URL (ImageKit or uploaded image).');
   if (parentCategory) {
     let parent = await CategoryModel.findById(parentCategory).select('parentCategory');
     if (!parent) throw new ApiError(400, 'Parent category does not exist.');

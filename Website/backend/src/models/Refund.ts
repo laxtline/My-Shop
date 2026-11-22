@@ -2,11 +2,21 @@ import { Schema, model, type InferSchemaType } from 'mongoose';
 
 const refundSchema = new Schema(
   {
-    return: { type: Schema.Types.ObjectId, ref: 'Return', required: true, index: true },
+    // Null for cancellation refunds, where no physical return exists.
+    return: { type: Schema.Types.ObjectId, ref: 'Return', default: null, index: true },
     order: { type: Schema.Types.ObjectId, ref: 'Order', required: true, index: true },
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    kind: { type: String, enum: ['RETURN', 'CANCELLATION'], default: 'RETURN', index: true },
+    reason: { type: String, default: '' },
     amount: { type: Number, required: true, min: 0 },
-    method: { type: String, enum: ['UPI', 'BANK'], required: true },
+    /**
+     * RAZORPAY = automated gateway refund to the original instrument.
+     * UPI/BANK = manual payout to customer-supplied details (encrypted below).
+     */
+    method: { type: String, enum: ['RAZORPAY', 'UPI', 'BANK'], required: true },
+    razorpayRefundId: { type: String, default: '' },
+    razorpayPaymentId: { type: String, default: '' },
+    failureReason: { type: String, default: '' },
     // Encrypted fields - stored as base64 encrypted strings
     upiIdEncrypted: { type: String, default: '' },
     bankAccountEncrypted: { type: String, default: '' },

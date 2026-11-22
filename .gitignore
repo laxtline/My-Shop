@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-AndroidApp/node_modules/
+MobileApp/node_modules/
 Website/frontend/node_modules/
 Website/backend/node_modules/
 
@@ -16,7 +16,7 @@ build/
 .env.*.local
 Website/backend/.env
 Website/frontend/.env.local
-AndroidApp/.env
+MobileApp/.env
 
 # IDE / Editor
 .idea/
@@ -46,3 +46,13 @@ coverage/
 
 # Turbo
 .turbo/
+.vercel
+.env*
+!.env.example
+!**/.env.example
+
+# Local audit notes and documents (not part of the app)
+/AUDIT_RESULTS.json
+/FUNCTIONAL_AUDIT.md
+/*.docx
+/Website/backend/src/seed/auditVerification.ts

@@ -3,10 +3,13 @@
  * in-memory MongoDB, mints a JWT directly (no Google needed), and exercises the
  * catalog → cart → COD checkout → orders → admin flow. Run:  npx tsx src/seed/smokeTest.ts
  */
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { MongoMemoryReplSet } from "mongodb-memory-server";
 
 async function main() {
-  const mem = await MongoMemoryServer.create();
+  // The app uses Mongo transactions for checkout, so the in-memory database
+  // must be a replica set (a standalone mongod rejects transaction numbers).
+  const mem = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: "wiredTiger" } });
+  await mem.waitUntilRunning();
   // env.ts reads these at import time — set BEFORE importing anything that uses env.
   process.env.MONGODB_URI = mem.getUri();
   process.env.JWT_SECRET = "smoke-secret";
@@ -122,13 +125,38 @@ async function main() {
     check("cart emptied after checkout", (body?.data?.items?.length ?? -1) === 0);
   }
 
+  // 6b. Shipping serviceability (offline estimate) + mobile cart replacement.
+  {
+    const res = await fetch(
+      `${base}/api/shipping/serviceability?pincode=753001&itemsTotal=600&weight=1&cod=true`
+    );
+    const { body } = await j(res);
+    check("shipping serviceability 200", res.status === 200, `status=${res.status}`);
+    check("pincode is serviceable", body?.data?.serviceable === true);
+    check("delivery uses offline estimate", body?.data?.source === "estimate", `got ${body?.data?.source}`);
+    check("delivery fee = 49 below free threshold", body?.data?.deliveryFee === 49, `got ${body?.data?.deliveryFee}`);
+
+    const replaced = await j(
+      await fetch(`${base}/api/cart/replace`, {
+        method: "POST", headers: authHeaders,
+        body: JSON.stringify({ items: [{ productId: product._id.toString(), quantity: 2 }] }),
+      })
+    );
+    check(
+      "mobile cart replace sets the exact quantity",
+      replaced.body?.data?.items?.length === 1 && replaced.body?.data?.items?.[0]?.quantity === 2,
+      `items=${replaced.body?.data?.items?.length}`
+    );
+  }
+
   // 7. My orders list.
   {
     const { body } = await j(await fetch(`${base}/api/orders`, { headers: authHeaders }));
     check("GET /api/orders returns the order", body?.data?.items?.some((o: any) => o.id === orderId));
   }
 
-  // 8. Admin: stats + advance status PLACED->CONFIRMED->SHIPPED->DELIVERED (marks COD paid).
+  // 8. Admin: stats + advance status through the full flow; COD stays PENDING
+  // until an admin records the cash collection.
   {
     const stats = await j(await fetch(`${base}/api/orders/admin/stats`, { headers: authHeaders }));
     check("admin stats revenue = 553", stats.body?.data?.revenue === 553, `got ${stats.body?.data?.revenue}`);
@@ -140,14 +168,22 @@ async function main() {
     );
     check("illegal PLACED->DELIVERED rejected (400)", bad.status === 400);
 
-    for (const next of ["CONFIRMED", "SHIPPED", "DELIVERED"]) {
-      await fetch(`${base}/api/orders/${orderId}/status`, {
+    for (const next of ["CONFIRMED", "PACKED", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED"]) {
+      const res = await fetch(`${base}/api/orders/${orderId}/status`, {
         method: "PATCH", headers: authHeaders, body: JSON.stringify({ status: next }),
       });
+      if (!res.ok) console.error(`[smoke] status ${next} failed:`, res.status, await res.text());
     }
     const { body } = await j(await fetch(`${base}/api/orders/${orderId}`, { headers: authHeaders }));
-    check("status advanced to DELIVERED", body?.data?.status === "DELIVERED");
-    check("COD marked PAID on delivery", body?.data?.paymentStatus === "PAID");
+    check("status advanced to DELIVERED", body?.data?.status === "DELIVERED", `got ${body?.data?.status}`);
+    check("COD still PENDING after delivery", body?.data?.paymentStatus === "PENDING", `got ${body?.data?.paymentStatus}`);
+
+    const collected = await fetch(`${base}/api/orders/${orderId}/cod-collected`, {
+      method: "PATCH", headers: authHeaders,
+    });
+    check("admin records COD cash collection", collected.ok, `status=${collected.status}`);
+    const after = await j(await fetch(`${base}/api/orders/${orderId}`, { headers: authHeaders }));
+    check("COD marked PAID after collection", after.body?.data?.paymentStatus === "PAID", `got ${after.body?.data?.paymentStatus}`);
   }
 
   // 9. Unauthenticated cart is rejected.
@@ -221,19 +257,34 @@ async function main() {
     );
     check("POST /api/coupons 201", create.status === 201, `status=${create.status}`);
 
+    // Coupon validation prices the server-side cart, so put ₹1000 in it first.
+    const couponProduct = await ProductModel.create({
+      title: "Coupon Test Product", category: cat._id, brand: "Test",
+      images: ["https://example.com/c.jpg"], price: 1000, mrp: 1200, stock: 5, sku: "CPN-1000",
+    });
+    await fetch(`${base}/api/cart/replace`, {
+      method: "POST", headers: authHeaders,
+      body: JSON.stringify({ items: [{ productId: couponProduct._id.toString(), quantity: 1 }] }),
+    });
+
     const valid = await j(
       await fetch(`${base}/api/coupons/validate`, {
         method: "POST",
         headers: authHeaders,
-        body: JSON.stringify({ code: "SAVE10", itemsTotal: 1000 }),
+        body: JSON.stringify({ code: "SAVE10" }),
       })
     );
     check("coupon validate: 10% of 1000 = 100", valid.body?.data?.discount === 100, `got ${valid.body?.data?.discount}`);
 
+    // Swap in a single ₹48 line so the ₹100 minimum is no longer met.
+    await fetch(`${base}/api/cart/replace`, {
+      method: "POST", headers: authHeaders,
+      body: JSON.stringify({ items: [{ productId: product._id.toString(), quantity: 1 }] }),
+    });
     const belowMin = await fetch(`${base}/api/coupons/validate`, {
       method: "POST",
       headers: authHeaders,
-      body: JSON.stringify({ code: "SAVE10", itemsTotal: 50 }),
+      body: JSON.stringify({ code: "SAVE10" }),
     });
     check("coupon below minOrder rejected (400)", belowMin.status === 400);
   }
