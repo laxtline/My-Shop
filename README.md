@@ -303,9 +303,16 @@ npx eas build -p android       # production build
 
 ## Deployment
 
-**Backend** — Render / Railway / a VPS. Build with `npm install && npm run
-build`, start with `npm run start`, and add every variable from `.env.example`.
-Use a MongoDB Atlas cluster and allow the host's IP.
+Full step-by-step runbook: **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+
+Recommended stack: **MongoDB Atlas** (database) + **Render** (`render.yaml` at the
+repo root deploys the API) + **Vercel** (root directory `Website/frontend`) +
+**EAS** (mobile builds). A root `Dockerfile` is included for Railway/Fly/VPS.
+
+**Backend** — Render / Railway / a VPS. Build with `npm ci`, start with `npm
+start`, health check `/api/health`, and add every variable from `.env.example`.
+`MONGODB_URI`, `JWT_SECRET` and `GOOGLE_CLIENT_ID` are mandatory; use a MongoDB
+Atlas cluster.
 
 **Website** — Vercel, root directory `Website/frontend`. Set
 `NEXT_PUBLIC_API_URL` to the public API and `NEXT_PUBLIC_GOOGLE_CLIENT_ID` to

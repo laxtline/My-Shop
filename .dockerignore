@@ -1,0 +1,17 @@
+.git
+.gitignore
+.github
+
+**/node_modules
+**/.next
+**/dist
+**/uploads
+**/*.log
+
+MobileApp
+Website/frontend
+mongodb-data
+
+AUDIT_RESULTS.json
+FUNCTIONAL_AUDIT.md
+*.docx
