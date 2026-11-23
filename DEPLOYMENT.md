@@ -97,11 +97,15 @@ never run it on a live catalogue.
 
 ### Uploads
 
-Admin image uploads are written to `Website/backend/uploads` on local disk.
-Render's disk is ephemeral unless you attach a **persistent disk** (paid plans)
-at `/opt/render/project/src/Website/backend/uploads`. Product images added as
-external URLs are unaffected. For a long-term setup, move uploads to
-Cloudinary/S3 (not wired up yet).
+Product and category images accept **ImageKit** and **Cloudinary** delivery
+URLs out of the box, and the brand logo accepts any HTTPS image URL. Pasting
+CDN URLs into the admin forms is the recommended setup for a hosted deploy.
+
+Admin file uploads (`POST /api/uploads`) are still written to
+`Website/backend/uploads` on local disk. Render's disk is ephemeral unless you
+attach a **persistent disk** (paid plans) at
+`/opt/render/project/src/Website/backend/uploads`; Railway needs a volume. If
+you use CDN URLs, you never need that disk.
 
 ### Railway instead of Render
 

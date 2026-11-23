@@ -10,8 +10,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { AdminTabs } from "./AdminTabs";
 import { PLACEHOLDER_IMAGE } from "@/lib/format";
-import { imageUrl, isImageKitUrl } from '@shared/images';
-import { ImageKitPreview } from '@/components/ui/ImageKitPreview';
+import { imageUrl, isSupportedImageUrl } from '@shared/images';
+import { MediaPreview } from '@/components/ui/MediaPreview';
 import { CataloguePicker } from '@/components/ui/CataloguePicker';
 import { CursorPager } from '@/components/ui/CursorPager';
 import { useCursorPages } from '@/hooks/useCursorPages';
@@ -98,7 +98,7 @@ function CategoriesManager() {
   const save = async () => {
     setFormError(null);
     if (!form.name.trim()) return setFormError("Name is required.");
-    if (form.image.trim() && form.image.trim() !== editing?.image && !isImageKitUrl(form.image.trim())) return setFormError('Use a valid HTTPS ImageKit image URL.');
+    if (form.image.trim() && form.image.trim() !== editing?.image && !isSupportedImageUrl(form.image.trim())) return setFormError('Use a valid HTTPS ImageKit or Cloudinary image URL.');
 
     setSaving(true);
     try {
@@ -238,7 +238,7 @@ function CategoriesManager() {
           </Field>
           <Field label="Image URL">
             <input className={INPUT} value={form.image} onChange={(e) => set("image", e.target.value)} />
-            <ImageKitPreview url={form.image} existing={form.image === editing?.image} />
+            <MediaPreview url={form.image} existing={form.image === editing?.image} />
           </Field>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Order">

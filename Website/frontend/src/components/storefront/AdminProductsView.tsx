@@ -11,9 +11,9 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { AdminTabs } from "./AdminTabs";
 import { formatINR, primaryImage } from "@/lib/format";
-import { imageUrl, isImageKitUrl } from '@shared/images';
+import { isSupportedImageUrl } from '@shared/images';
 import { CataloguePicker } from '@/components/ui/CataloguePicker';
-import { ImageKitPreview } from '@/components/ui/ImageKitPreview';
+import { MediaPreview } from '@/components/ui/MediaPreview';
 import { CursorPager } from '@/components/ui/CursorPager';
 import { useCursorPages } from '@/hooks/useCursorPages';
 import { useAdminLive } from '@/hooks/useAdminLive';
@@ -198,7 +198,7 @@ function ProductsManager() {
     if (!form.price || Number(form.price) <= 0) return setFormError("Price must be greater than 0.");
     if (!form.mrp || Number(form.mrp) <= 0) return setFormError("MRP must be greater than 0.");
     const urls = form.imagesText.split('\n').map((s) => s.trim()).filter(Boolean);
-    if (urls.length > 20 || urls.some((url) => !isImageKitUrl(url) && !editing?.images.includes(url))) return setFormError('Provide up to 20 valid HTTPS ImageKit image URLs.');
+    if (urls.length > 20 || urls.some((url) => !isSupportedImageUrl(url) && !editing?.images.includes(url))) return setFormError('Provide up to 20 valid HTTPS ImageKit or Cloudinary image URLs.');
 
     setSaving(true);
     try {
@@ -431,7 +431,7 @@ function ProductsManager() {
                 {imageUrls.map((url, i) => (
                   <div key={i} className="relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <ImageKitPreview url={url} existing={!!editing?.images.includes(url)} />
+                    <MediaPreview url={url} existing={!!editing?.images.includes(url)} />
                     <button
                       type="button"
                       onClick={() =>

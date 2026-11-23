@@ -231,6 +231,7 @@ Add the mobile client ids to the backend as a comma-separated
 | --- | --- | --- |
 | `NEXT_PUBLIC_API_URL` | **Yes** | Backend origin |
 | `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | **Yes** | Same web client id as the backend |
+| `NEXT_PUBLIC_SITE_URL` | No | Public website origin (metadata, share links) |
 
 ### Mobile (`MobileApp`)
 
@@ -245,6 +246,27 @@ Add the mobile client ids to the backend as a comma-separated
 | `EAS_PROJECT_ID` | For builds | Enables Expo push tokens |
 
 \* Provide the ids for the platforms you build.
+
+### Media and images
+
+Product and category images accept **ImageKit** and **Cloudinary** delivery
+URLs, plus images uploaded through the admin uploader:
+
+- ImageKit: `https://ik.imagekit.io/<your-id>/<path>`
+- Cloudinary: `https://res.cloudinary.com/<cloud>/image/upload/<path>`
+
+Both are rendered as delivered. ImageKit URLs additionally get on-the-fly
+width/height transforms; Cloudinary URLs are left untouched so their own
+transforms and signatures keep working. Logos and other brand media are plain
+`<img>` URLs, so any HTTPS host (including both CDNs) works.
+
+Custom delivery domains are opt-in: add the hostname to
+`IMAGEKIT_CUSTOM_HOSTS` or `CLOUDINARY_CUSTOM_HOSTS` in `shared/images.ts`.
+External image hosts need no CORS setup for `<img>` tags.
+
+Admin uploads (`POST /api/uploads`) still write to local disk. On ephemeral
+hosts (Render free, Railway without a volume) prefer pasting ImageKit or
+Cloudinary URLs, or attach a persistent disk.
 
 ---
 
