@@ -116,16 +116,6 @@
 .googleContainer { width: 100%; min-height: 40px; }
 .busy { pointer-events: none; opacity: .6; }
 
-.accountHint,
-.guestHint {
-  color: #8a909c;
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.accountHint { margin-top: 12px; }
-.guestHint { margin-top: 5px; }
-
 .divider {
   display: flex;
   align-items: center;

@@ -119,7 +119,6 @@ function LoginOptions() {
                   </div>
                 )}
               </div>
-              <p className={styles.accountHint}>For customers &amp; store admins</p>
               <div className={styles.divider}><span>OR</span></div>
               <button onClick={handleGuestContinue} disabled={busy} className={styles.guestButton}>
                 <svg width="24" height="26" viewBox="0 0 24 26" fill="currentColor" aria-hidden="true">
@@ -128,7 +127,6 @@ function LoginOptions() {
                 </svg>
                 Continue as Guest
               </button>
-              <p className={styles.guestHint}>Take a look around. No account needed.</p>
             </div>
           )}
 
